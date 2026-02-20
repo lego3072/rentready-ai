@@ -762,9 +762,9 @@ async def analyze_report(
     if not rooms_data:
         raise HTTPException(400, "No rooms to analyze")
 
-    # Free trial: max 3 rooms
-    if access.get("reason") == "free_trial" and len(rooms_data) > 3:
-        rooms_data = rooms_data[:3]
+    # Free trial: max 4 rooms
+    if access.get("reason") == "free_trial" and len(rooms_data) > 4:
+        rooms_data = rooms_data[:4]
 
     # Analyze each room
     analyzed_rooms = []
