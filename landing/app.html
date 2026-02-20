@@ -474,9 +474,14 @@
                 <div id="results-rooms"></div>
             </div>
 
-            <button class="btn-primary" onclick="downloadPDF()" id="download-btn">
-                Download PDF Report
-            </button>
+            <div style="display:flex;gap:12px;">
+                <button class="btn-primary" onclick="downloadPDF()" id="download-btn" style="flex:1;">
+                    Download PDF
+                </button>
+                <button class="btn-primary" onclick="showEmailModal()" id="email-btn" style="flex:1;background:#16a34a;">
+                    Email Report
+                </button>
+            </div>
 
             <div id="upgrade-banner" class="hidden" style="margin-top:16px;">
                 <div class="pricing-banner">
@@ -502,6 +507,18 @@
             <button class="btn-secondary" onclick="startNew()" style="margin-top:12px;">
                 Create Another Report
             </button>
+        </div>
+    </div>
+
+    <!-- Email Modal -->
+    <div id="email-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)closeEmailModal()">
+        <div style="background:#fff;border-radius:12px;padding:24px;max-width:420px;width:90%;margin:20px;">
+            <h3 style="font-size:16px;margin-bottom:12px;">Email Report</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Send the PDF report to an email address.</p>
+            <input type="email" id="email-input" placeholder="tenant@email.com" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;outline:none;margin-bottom:12px;">
+            <button class="btn-primary" onclick="sendEmail()" id="send-email-btn" style="background:#16a34a;">Send Report</button>
+            <button class="btn-secondary" onclick="closeEmailModal()" style="margin-top:8px;">Cancel</button>
+            <div id="email-status" style="font-size:13px;margin-top:8px;text-align:center;"></div>
         </div>
     </div>
 
@@ -595,7 +612,10 @@ function showPastReports() {
                     <div class="past-report-info">${r.address || 'Property Report'}</div>
                     <div class="past-report-date">${r.date}</div>
                 </div>
-                <button class="past-report-btn" onclick="downloadPastReport('${r.id}')">Download</button>
+                <div style="display:flex;gap:6px;">
+                    <button class="past-report-btn" onclick="downloadPastReport('${r.id}')">Download</button>
+                    <button class="past-report-btn" onclick="showEmailModalForReport('${r.id}')" style="background:#16a34a;">Email</button>
+                </div>
             </div>`;
     });
 }
@@ -839,14 +859,71 @@ function showPricingOnly() {
 function downloadPDF() {
     if (!currentReportId) return;
     const link = document.createElement('a');
-    link.href = `/api/report/${currentReportId}/pdf`;
+    link.href = `/api/report/${currentReportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
     link.click();
 }
 
 function downloadPastReport(reportId) {
     const link = document.createElement('a');
-    link.href = `/api/report/${reportId}/pdf`;
+    link.href = `/api/report/${reportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
     link.click();
+}
+
+// --- Email ---
+let emailReportId = null;
+
+function showEmailModal() {
+    emailReportId = currentReportId;
+    document.getElementById('email-modal').style.display = 'flex';
+    document.getElementById('email-modal').classList.remove('hidden');
+    document.getElementById('email-input').value = '';
+    document.getElementById('email-status').textContent = '';
+    document.getElementById('email-input').focus();
+}
+
+function closeEmailModal() {
+    document.getElementById('email-modal').style.display = 'none';
+}
+
+function showEmailModalForReport(reportId) {
+    emailReportId = reportId;
+    document.getElementById('email-modal').style.display = 'flex';
+    document.getElementById('email-modal').classList.remove('hidden');
+    document.getElementById('email-input').value = '';
+    document.getElementById('email-status').textContent = '';
+    document.getElementById('email-input').focus();
+}
+
+async function sendEmail() {
+    const email = document.getElementById('email-input').value.trim();
+    if (!email || !email.includes('@')) {
+        document.getElementById('email-status').innerHTML = '<span style="color:#dc2626;">Enter a valid email address</span>';
+        return;
+    }
+
+    const btn = document.getElementById('send-email-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    document.getElementById('email-status').textContent = '';
+
+    try {
+        const res = await fetch('/api/email-report', {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify({ report_id: emailReportId, email }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Failed to send');
+        }
+        document.getElementById('email-status').innerHTML = '<span style="color:#16a34a;">Report sent to ' + email + '</span>';
+        setTimeout(closeEmailModal, 2000);
+    } catch (err) {
+        document.getElementById('email-status').innerHTML = '<span style="color:#dc2626;">' + err.message + '</span>';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Send Report';
 }
 
 // --- Checkout ---
