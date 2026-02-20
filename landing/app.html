@@ -1532,18 +1532,10 @@ async function analyzePhotos() {
             });
         }
 
-        // Show upgrade banner for unpaid users — they can see the preview but not save
+        // Show upgrade banner only if user has no remaining access for NEW reports
+        // (they can always access the report they just generated)
         if (!hasPaidAccess()) {
             document.getElementById('upgrade-banner').classList.remove('hidden');
-            document.getElementById('download-btn').textContent = '🔒 Unlock to Download PDF';
-            document.getElementById('email-btn').textContent = '🔒 Unlock to Email Report';
-            document.getElementById('text-btn').textContent = '🔒 Text Report';
-            document.getElementById('share-btn').textContent = '🔒 Share Link';
-            // Add conversion nudge below the results
-            const nudge = document.createElement('div');
-            nudge.style.cssText = 'text-align:center;padding:16px;margin-top:12px;background:#fffbeb;border:1px solid #f59e0b;border-radius:10px;';
-            nudge.innerHTML = '<p style="margin:0;font-size:14px;color:#92400e;font-weight:600;">Your report is ready — purchase to download, email, or text it.</p>';
-            document.getElementById('results-rooms').appendChild(nudge);
         }
 
         // Refresh user status but don't trigger paywall (they're viewing their report)
@@ -1770,7 +1762,6 @@ function executePendingAction(pending) {
 // --- Downloads ---
 function downloadPDF() {
     if (!currentReportId) return;
-    if (!hasPaidAccess()) { showPaywall(); return; }
     openSigModal('download', currentReportId);
 }
 
@@ -1781,7 +1772,6 @@ function doDownloadPDF(reportId) {
 }
 
 function downloadPastReport(reportId) {
-    if (!hasPaidAccess()) { showPaywall(); return; }
     doDownloadPDF(reportId);
 }
 
@@ -1789,7 +1779,6 @@ function downloadPastReport(reportId) {
 let emailReportId = null;
 
 function showEmailModal() {
-    if (!hasPaidAccess()) { showPaywall(); return; }
     openSigModal('email', currentReportId);
 }
 
@@ -1807,7 +1796,6 @@ function closeEmailModal() {
 }
 
 function showEmailModalForReport(reportId) {
-    if (!hasPaidAccess()) { showPaywall(); return; }
     openSigModal('email', reportId);
 }
 
@@ -1861,7 +1849,6 @@ async function getShareLink() {
 }
 
 async function textReport() {
-    if (!hasPaidAccess()) { showPaywall(); return; }
     openSigModal('text', currentReportId);
 }
 
@@ -1875,7 +1862,6 @@ async function doTextReport() {
 }
 
 async function shareReport() {
-    if (!hasPaidAccess()) { showPaywall(); return; }
     openSigModal('share', currentReportId);
 }
 
