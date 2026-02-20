@@ -947,6 +947,11 @@ async function loadUserStatus() {
         userStatus = await res.json();
         updateStatusDisplay();
         showPastReports();
+
+        // Hard paywall: if free trial used and no paid access, lock them out immediately
+        if (userStatus.reports_used > 0 && !hasPaidAccess()) {
+            showHardPaywall();
+        }
     } catch (e) {
         console.error('Failed to load user status', e);
     }
@@ -1231,6 +1236,23 @@ async function analyzePhotos() {
 
     btn.disabled = false;
     btn.textContent = 'Generate Report';
+}
+
+function showHardPaywall() {
+    // Replace step 1 form with full paywall — they've used their free trial
+    showStep(3);
+    document.getElementById('loading-state').classList.add('hidden');
+    document.getElementById('results-state').classList.remove('hidden');
+    document.getElementById('download-btn').classList.add('hidden');
+    document.getElementById('email-btn').classList.add('hidden');
+    document.getElementById('results-rooms').innerHTML = `
+        <div style="text-align:center;padding:32px 16px;">
+            <div style="font-size:48px;margin-bottom:16px;">✅</div>
+            <h2 style="margin:0 0 8px;font-size:22px;">You've seen what our AI can do</h2>
+            <p style="color:#666;margin:0 0 4px;font-size:15px;">Your free trial report has been used.</p>
+            <p style="color:#1a1a2e;margin:0 0 20px;font-size:15px;font-weight:600;">Unlock full access to download, email, and create unlimited reports.</p>
+        </div>`;
+    document.getElementById('upgrade-banner').classList.remove('hidden');
 }
 
 function showPricingOnly() {
