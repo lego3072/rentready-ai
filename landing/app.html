@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RentReady AI — Property Condition Reports in 60 Seconds</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #1a1a2e;
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .logo span { color: #2563eb; }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .user-status {
+            font-size: 13px;
+            color: #666;
+        }
+
+        /* Main container */
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Hero — minimal */
+        .hero {
+            text-align: center;
+            padding: 30px 0 20px;
+        }
+        .hero h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .hero p {
+            font-size: 15px;
+            color: #666;
+        }
+
+        /* Steps indicator */
+        .steps {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin: 20px 0;
+        }
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #999;
+        }
+        .step.active { color: #2563eb; font-weight: 600; }
+        .step.done { color: #16a34a; }
+        .step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            background: #e5e7eb;
+            color: #666;
+        }
+        .step.active .step-num { background: #2563eb; color: #fff; }
+        .step.done .step-num { background: #16a34a; color: #fff; }
+        .step-arrow { color: #ccc; }
+
+        /* Cards */
+        .card {
+            background: #fff;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+        .card h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        /* Property info form */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .form-grid .full-width { grid-column: 1 / -1; }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 4px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus, .form-group select:focus {
+            border-color: #2563eb;
+        }
+
+        /* Room upload section */
+        .room-list { display: flex; flex-direction: column; gap: 12px; }
+        .room-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            background: #fafafa;
+        }
+        .room-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .room-name-input {
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            background: transparent;
+            outline: none;
+            color: #1a1a2e;
+            width: 60%;
+        }
+        .room-name-input::placeholder { color: #aaa; }
+        .remove-room {
+            background: none;
+            border: none;
+            color: #dc2626;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 4px 8px;
+        }
+        .remove-room:hover { text-decoration: underline; }
+
+        /* Photo upload area */
+        .photo-upload-area {
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .photo-upload-area:hover {
+            border-color: #2563eb;
+            background: #f0f4ff;
+        }
+        .photo-upload-area.has-photos {
+            border-style: solid;
+            border-color: #16a34a;
+            background: #f0fdf4;
+        }
+        .photo-upload-icon { font-size: 28px; margin-bottom: 4px; }
+        .photo-upload-text { font-size: 13px; color: #666; }
+        .photo-upload-hint { font-size: 11px; color: #999; margin-top: 4px; }
+
+        /* Photo thumbnails */
+        .photo-thumbs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .photo-thumb {
+            width: 70px;
+            height: 70px;
+            border-radius: 6px;
+            object-fit: cover;
+            border: 1px solid #e0e0e0;
+        }
+
+        /* Add room button */
+        .add-room-btn {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            background: transparent;
+            color: #666;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .add-room-btn:hover {
+            border-color: #2563eb;
+            color: #2563eb;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:disabled {
+            background: #93c5fd;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            width: 100%;
+            padding: 12px;
+            background: #fff;
+            color: #2563eb;
+            border: 2px solid #2563eb;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-secondary:hover { background: #f0f4ff; }
+
+        /* Results */
+        .result-room {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            background: #fafafa;
+        }
+        .result-room h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1a1a2e;
+        }
+        .result-room p {
+            font-size: 13px;
+            color: #444;
+            line-height: 1.7;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid #2563eb;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: #666; font-size: 14px; }
+
+        /* Pricing banner */
+        .pricing-banner {
+            background: linear-gradient(135deg, #1a1a2e, #2563eb);
+            color: #fff;
+            border-radius: 10px;
+            padding: 24px;
+            text-align: center;
+            margin: 16px 0;
+        }
+        .pricing-banner h3 { font-size: 18px; margin-bottom: 8px; }
+        .pricing-banner p { font-size: 14px; opacity: 0.9; margin-bottom: 16px; }
+        .pricing-options {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .pricing-option {
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 16px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 160px;
+        }
+        .pricing-option:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-2px);
+        }
+        .pricing-option .price {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .pricing-option .label {
+            font-size: 13px;
+            opacity: 0.85;
+        }
+
+        /* Trial badge */
+        .trial-badge {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        /* Past reports */
+        .past-report {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            background: #fff;
+        }
+        .past-report-info { font-size: 14px; }
+        .past-report-date { font-size: 12px; color: #888; }
+        .past-report-btn {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .form-grid { grid-template-columns: 1fr; }
+            .container { padding: 12px; }
+            .hero h1 { font-size: 20px; }
+            .pricing-options { flex-direction: column; align-items: center; }
+        }
+
+        /* Hide sections */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="logo">Rent<span>Ready</span> AI</div>
+    <div class="header-right">
+        <span class="user-status" id="user-status"></span>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Step indicator -->
+    <div class="steps">
+        <div class="step active" id="step1-indicator">
+            <div class="step-num">1</div>
+            <span>Details</span>
+        </div>
+        <span class="step-arrow">→</span>
+        <div class="step" id="step2-indicator">
+            <div class="step-num">2</div>
+            <span>Photos</span>
+        </div>
+        <span class="step-arrow">→</span>
+        <div class="step" id="step3-indicator">
+            <div class="step-num">3</div>
+            <span>Report</span>
+        </div>
+    </div>
+
+    <!-- STEP 1: Property Info -->
+    <div id="step1" class="card">
+        <h2>Property Information</h2>
+        <div class="form-grid">
+            <div class="form-group full-width">
+                <label for="address">Property Address *</label>
+                <input type="text" id="address" placeholder="123 Main St, Apt 4B, City, State, ZIP">
+            </div>
+            <div class="form-group">
+                <label for="unit">Unit / Apt #</label>
+                <input type="text" id="unit" placeholder="4B">
+            </div>
+            <div class="form-group">
+                <label for="report-type">Report Type</label>
+                <select id="report-type">
+                    <option value="Move-In">Move-In Inspection</option>
+                    <option value="Move-Out">Move-Out Inspection</option>
+                    <option value="Periodic">Periodic Inspection</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="tenant-name">Tenant Name</label>
+                <input type="text" id="tenant-name" placeholder="Jane Smith">
+            </div>
+            <div class="form-group">
+                <label for="landlord-name">Landlord / Manager Name</label>
+                <input type="text" id="landlord-name" placeholder="John Doe">
+            </div>
+        </div>
+        <div style="margin-top: 16px;">
+            <button class="btn-primary" onclick="goToStep2()">Next: Add Room Photos</button>
+        </div>
+    </div>
+
+    <!-- STEP 2: Room Photos -->
+    <div id="step2" class="hidden">
+        <div class="card">
+            <h2>Upload Room Photos</h2>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Add each room and upload 1-3 photos per room. We'll analyze the condition automatically.</p>
+
+            <div id="trial-badge-container"></div>
+
+            <div class="room-list" id="room-list"></div>
+
+            <button class="add-room-btn" onclick="addRoom()">+ Add Room</button>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-top:8px;">
+            <button class="btn-secondary" onclick="goToStep1()" style="flex:1;">Back</button>
+            <button class="btn-primary" id="analyze-btn" onclick="analyzePhotos()" style="flex:2;" disabled>Generate Report</button>
+        </div>
+    </div>
+
+    <!-- STEP 3: Results -->
+    <div id="step3" class="hidden">
+        <!-- Loading state -->
+        <div id="loading-state" class="card loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Analyzing photos and generating your report...</div>
+            <p style="font-size:12px;color:#999;margin-top:8px;">This usually takes 15-30 seconds</p>
+        </div>
+
+        <!-- Results -->
+        <div id="results-state" class="hidden">
+            <div class="card">
+                <h2>Your Condition Report is Ready</h2>
+                <div id="results-rooms"></div>
+            </div>
+
+            <button class="btn-primary" onclick="downloadPDF()" id="download-btn">
+                Download PDF Report
+            </button>
+
+            <div id="upgrade-banner" class="hidden" style="margin-top:16px;">
+                <div class="pricing-banner">
+                    <h3>Need more reports?</h3>
+                    <p>Your free trial is used. Get unlimited reports with Pro.</p>
+                    <div class="pricing-options">
+                        <div class="pricing-option" onclick="checkout('single')">
+                            <div class="price">$4.99</div>
+                            <div class="label">Single Report</div>
+                        </div>
+                        <div class="pricing-option" onclick="checkout('pro')">
+                            <div class="price">$29/mo</div>
+                            <div class="label">Unlimited Reports</div>
+                        </div>
+                        <div class="pricing-option" onclick="checkout('annual')">
+                            <div class="price">$249/yr</div>
+                            <div class="label">Save $99/year</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn-secondary" onclick="startNew()" style="margin-top:12px;">
+                Create Another Report
+            </button>
+        </div>
+    </div>
+
+    <!-- Past Reports -->
+    <div id="past-reports-section" class="hidden" style="margin-top:24px;">
+        <div class="card">
+            <h2>Your Past Reports</h2>
+            <div id="past-reports-list"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- State ---
+let fingerprint = localStorage.getItem('rr_fingerprint') || generateFingerprint();
+let rooms = [];
+let currentReportId = null;
+let userStatus = null;
+
+function generateFingerprint() {
+    const fp = 'rr_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    localStorage.setItem('rr_fingerprint', fp);
+    return fp;
+}
+
+// --- API helpers ---
+function apiHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'X-Fingerprint': fingerprint,
+    };
+}
+
+function uploadHeaders() {
+    return { 'X-Fingerprint': fingerprint };
+}
+
+// --- Init ---
+async function init() {
+    // Check for payment success
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+        window.history.replaceState({}, '', '/');
+    }
+
+    await loadUserStatus();
+    addDefaultRooms();
+}
+
+async function loadUserStatus() {
+    try {
+        const res = await fetch('/api/user/status', { headers: apiHeaders() });
+        userStatus = await res.json();
+        updateStatusDisplay();
+        showPastReports();
+    } catch (e) {
+        console.error('Failed to load user status', e);
+    }
+}
+
+function updateStatusDisplay() {
+    const el = document.getElementById('user-status');
+    if (!userStatus) return;
+    if (userStatus.is_pro) {
+        el.textContent = 'Pro';
+        el.style.color = '#2563eb';
+        el.style.fontWeight = '600';
+    } else if (userStatus.reports_used === 0) {
+        el.textContent = '1 free report';
+        el.style.color = '#16a34a';
+    } else {
+        const remaining = userStatus.single_reports_purchased - (userStatus.reports_used - 1);
+        if (remaining > 0) {
+            el.textContent = remaining + ' report' + (remaining > 1 ? 's' : '') + ' left';
+        } else {
+            el.textContent = '';
+        }
+    }
+}
+
+function showPastReports() {
+    if (!userStatus || !userStatus.reports || userStatus.reports.length === 0) return;
+    const section = document.getElementById('past-reports-section');
+    const list = document.getElementById('past-reports-list');
+    section.classList.remove('hidden');
+    list.innerHTML = '';
+    userStatus.reports.forEach(r => {
+        list.innerHTML += `
+            <div class="past-report">
+                <div>
+                    <div class="past-report-info">${r.address || 'Property Report'}</div>
+                    <div class="past-report-date">${r.date}</div>
+                </div>
+                <button class="past-report-btn" onclick="downloadPastReport('${r.id}')">Download</button>
+            </div>`;
+    });
+}
+
+// --- Step Navigation ---
+function goToStep1() {
+    showStep(1);
+}
+
+function goToStep2() {
+    const address = document.getElementById('address').value.trim();
+    if (!address) {
+        document.getElementById('address').style.borderColor = '#dc2626';
+        document.getElementById('address').focus();
+        return;
+    }
+    document.getElementById('address').style.borderColor = '#d1d5db';
+
+    // Show trial badge if first report
+    if (userStatus && userStatus.reports_used === 0) {
+        document.getElementById('trial-badge-container').innerHTML =
+            '<div class="trial-badge">Free trial: 1 report, up to 3 rooms. No signup or credit card needed.</div>';
+    }
+
+    showStep(2);
+    updateAnalyzeBtn();
+}
+
+function showStep(n) {
+    document.getElementById('step1').classList.toggle('hidden', n !== 1);
+    document.getElementById('step2').classList.toggle('hidden', n !== 2);
+    document.getElementById('step3').classList.toggle('hidden', n !== 3);
+
+    ['step1-indicator', 'step2-indicator', 'step3-indicator'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        el.classList.remove('active', 'done');
+        if (i + 1 < n) el.classList.add('done');
+        else if (i + 1 === n) el.classList.add('active');
+    });
+}
+
+// --- Room Management ---
+const defaultRooms = ['Kitchen', 'Living Room', 'Bedroom 1', 'Bathroom'];
+
+function addDefaultRooms() {
+    defaultRooms.forEach(name => addRoom(name));
+}
+
+function addRoom(name) {
+    // Free trial limit
+    if (userStatus && userStatus.reports_used === 0 && rooms.length >= 3) {
+        alert('Free trial is limited to 3 rooms. Upgrade to add more.');
+        return;
+    }
+
+    const id = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    rooms.push({ id, name: name || '', photos: [], files: [] });
+    renderRooms();
+}
+
+function removeRoom(id) {
+    rooms = rooms.filter(r => r.id !== id);
+    renderRooms();
+    updateAnalyzeBtn();
+}
+
+function renderRooms() {
+    const list = document.getElementById('room-list');
+    list.innerHTML = '';
+    rooms.forEach((room, idx) => {
+        const thumbsHtml = room.photos.map(p =>
+            `<img class="photo-thumb" src="${p.dataUrl}" alt="photo">`
+        ).join('');
+
+        const photoCount = room.photos.length;
+        const uploadClass = photoCount > 0 ? 'photo-upload-area has-photos' : 'photo-upload-area';
+        const uploadText = photoCount > 0
+            ? `${photoCount} photo${photoCount > 1 ? 's' : ''} added`
+            : 'Tap to add photos';
+
+        list.innerHTML += `
+            <div class="room-item">
+                <div class="room-header">
+                    <input class="room-name-input" type="text" value="${room.name}"
+                        placeholder="Room name (e.g. Kitchen)"
+                        onchange="updateRoomName('${room.id}', this.value)">
+                    ${rooms.length > 1 ? `<button class="remove-room" onclick="removeRoom('${room.id}')">Remove</button>` : ''}
+                </div>
+                <div class="${uploadClass}" onclick="document.getElementById('file_${room.id}').click()">
+                    <div class="photo-upload-icon">${photoCount > 0 ? '✓' : '📷'}</div>
+                    <div class="photo-upload-text">${uploadText}</div>
+                    <div class="photo-upload-hint">JPG, PNG — up to 3 photos per room</div>
+                </div>
+                <input type="file" id="file_${room.id}" accept="image/*" multiple capture="environment"
+                    style="display:none" onchange="handlePhotos('${room.id}', this.files)">
+                ${thumbsHtml ? `<div class="photo-thumbs">${thumbsHtml}</div>` : ''}
+            </div>`;
+    });
+}
+
+function updateRoomName(id, name) {
+    const room = rooms.find(r => r.id === id);
+    if (room) room.name = name;
+}
+
+function handlePhotos(roomId, fileList) {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) return;
+
+    const files = Array.from(fileList).slice(0, 3);
+    files.forEach(file => {
+        if (room.photos.length >= 3) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            room.photos.push({ dataUrl: e.target.result, file: file });
+            room.files.push(file);
+            renderRooms();
+            updateAnalyzeBtn();
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function updateAnalyzeBtn() {
+    const hasPhotos = rooms.some(r => r.photos.length > 0);
+    const hasNames = rooms.every(r => r.name.trim() !== '');
+    document.getElementById('analyze-btn').disabled = !(hasPhotos && hasNames);
+}
+
+// --- Analyze ---
+async function analyzePhotos() {
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+
+    showStep(3);
+    document.getElementById('loading-state').classList.remove('hidden');
+    document.getElementById('results-state').classList.add('hidden');
+
+    try {
+        // 1. Upload photos
+        const formData = new FormData();
+        const roomMeta = [];
+
+        rooms.forEach(room => {
+            if (room.files.length === 0) return;
+            roomMeta.push({ name: room.name, photo_count: room.files.length });
+            room.files.forEach(f => formData.append('photos', f));
+        });
+
+        formData.append('room_names', JSON.stringify(roomMeta));
+
+        const uploadRes = await fetch('/api/upload-photos', {
+            method: 'POST',
+            headers: uploadHeaders(),
+            body: formData,
+        });
+
+        if (!uploadRes.ok) {
+            const err = await uploadRes.json();
+            throw new Error(err.detail || 'Upload failed');
+        }
+
+        const uploadData = await uploadRes.json();
+
+        // 2. Analyze
+        const analyzeRes = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify({
+                rooms: uploadData.rooms,
+                property_info: {
+                    address: document.getElementById('address').value.trim(),
+                    unit: document.getElementById('unit').value.trim(),
+                    tenant_name: document.getElementById('tenant-name').value.trim(),
+                    landlord_name: document.getElementById('landlord-name').value.trim(),
+                },
+                report_type: document.getElementById('report-type').value,
+            }),
+        });
+
+        if (analyzeRes.status === 402) {
+            // Payment required
+            document.getElementById('loading-state').classList.add('hidden');
+            showPricingOnly();
+            return;
+        }
+
+        if (!analyzeRes.ok) {
+            const err = await analyzeRes.json();
+            throw new Error(err.detail || 'Analysis failed');
+        }
+
+        const result = await analyzeRes.json();
+        currentReportId = result.report_id;
+
+        // Show results
+        document.getElementById('loading-state').classList.add('hidden');
+        document.getElementById('results-state').classList.remove('hidden');
+
+        const resultsDiv = document.getElementById('results-rooms');
+        resultsDiv.innerHTML = '';
+        result.rooms.forEach(room => {
+            resultsDiv.innerHTML += `
+                <div class="result-room">
+                    <h3>${room.name}</h3>
+                    <p>${room.description.replace(/\n/g, '<br>')}</p>
+                </div>`;
+        });
+
+        // Show upgrade banner if free trial was used
+        if (result.is_free_trial) {
+            document.getElementById('upgrade-banner').classList.remove('hidden');
+        }
+
+        // Refresh user status
+        await loadUserStatus();
+
+    } catch (err) {
+        document.getElementById('loading-state').innerHTML = `
+            <div style="color:#dc2626;font-size:15px;">
+                Something went wrong: ${err.message}<br>
+                <button class="btn-secondary" onclick="goToStep2()" style="margin-top:12px;width:auto;padding:8px 20px;">
+                    Try Again
+                </button>
+            </div>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Generate Report';
+}
+
+function showPricingOnly() {
+    document.getElementById('results-state').classList.remove('hidden');
+    document.getElementById('results-rooms').innerHTML = '';
+    document.getElementById('download-btn').classList.add('hidden');
+    document.getElementById('upgrade-banner').classList.remove('hidden');
+}
+
+// --- Downloads ---
+function downloadPDF() {
+    if (!currentReportId) return;
+    const link = document.createElement('a');
+    link.href = `/api/report/${currentReportId}/pdf`;
+    link.click();
+}
+
+function downloadPastReport(reportId) {
+    const link = document.createElement('a');
+    link.href = `/api/report/${reportId}/pdf`;
+    link.click();
+}
+
+// --- Checkout ---
+async function checkout(type) {
+    try {
+        let endpoint, body;
+        if (type === 'single') {
+            endpoint = '/api/checkout/single';
+            body = {};
+        } else {
+            endpoint = '/api/checkout/pro';
+            body = { billing: type === 'annual' ? 'annual' : 'monthly' };
+        }
+
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.checkout_url) {
+            window.location.href = data.checkout_url;
+        }
+    } catch (err) {
+        alert('Checkout error: ' + err.message);
+    }
+}
+
+// --- New Report ---
+function startNew() {
+    rooms = [];
+    currentReportId = null;
+    addDefaultRooms();
+    document.getElementById('address').value = '';
+    document.getElementById('unit').value = '';
+    document.getElementById('tenant-name').value = '';
+    document.getElementById('landlord-name').value = '';
+    document.getElementById('report-type').value = 'Move-In';
+    document.getElementById('upgrade-banner').classList.add('hidden');
+    document.getElementById('download-btn').classList.remove('hidden');
+    goToStep1();
+}
+
+// --- Boot ---
+init();
+</script>
+</body>
+</html>
