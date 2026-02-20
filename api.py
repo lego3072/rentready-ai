@@ -355,6 +355,36 @@ async def health():
     return {"status": "ok", "service": "rentready-ai"}
 
 
+@app.get("/og-image.png")
+async def og_image():
+    """Generate OG image for social/iMessage link previews."""
+    from PIL import ImageDraw, ImageFont
+    from fastapi.responses import StreamingResponse
+
+    img = Image.new("RGB", (1200, 630), color=(248, 249, 250))
+    draw = ImageDraw.Draw(img)
+
+    # Top accent bar
+    draw.rectangle([(0, 0), (1200, 8)], fill=(37, 99, 235))
+
+    try:
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
+        sub_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+    except (OSError, IOError):
+        title_font = ImageFont.load_default()
+        sub_font = ImageFont.load_default()
+
+    draw.text((80, 200), "Condition Report", fill=(26, 26, 46), font=title_font)
+    draw.text((80, 300), "AI Property Condition Reports in 60 Seconds", fill=(100, 100, 100), font=sub_font)
+    draw.text((80, 380), "Upload photos  >  AI analysis  >  PDF report", fill=(37, 99, 235), font=sub_font)
+    draw.text((80, 480), "condition-report.com", fill=(150, 150, 150), font=sub_font)
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     html_path = Path("landing/app.html")
