@@ -605,7 +605,7 @@
     <div style="display:flex;align-items:center;gap:8px;">
         <span class="user-status" id="user-status"></span>
         <button class="profile-btn" id="profile-btn" onclick="openProfileOrAuth()">
-            <div class="profile-avatar guest" id="profile-avatar">?</div>
+            <div class="profile-avatar guest" id="profile-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
         </button>
     </div>
 </div>
@@ -854,6 +854,8 @@ function updateStatusDisplay() {
 
 function showPastReports() {
     if (!userStatus || !userStatus.reports || userStatus.reports.length === 0) return;
+    // Only show past reports for signed-in users
+    if (!accountData || !accountData.email) return;
     const section = document.getElementById('past-reports-section');
     const list = document.getElementById('past-reports-list');
     section.classList.remove('hidden');
@@ -1107,8 +1109,13 @@ async function analyzePhotos() {
 
 function showPricingOnly() {
     document.getElementById('results-state').classList.remove('hidden');
-    document.getElementById('results-rooms').innerHTML = '';
+    document.getElementById('results-rooms').innerHTML = `
+        <div style="text-align:center;padding:24px 0;">
+            <h3 style="margin:0 0 8px;">Your free trial report has been used</h3>
+            <p style="color:#666;margin:0;">Purchase a report or upgrade to Pro to continue.</p>
+        </div>`;
     document.getElementById('download-btn').classList.add('hidden');
+    document.getElementById('email-btn').classList.add('hidden');
     document.getElementById('upgrade-banner').classList.remove('hidden');
 }
 
@@ -1211,6 +1218,19 @@ async function checkout(type) {
 
 // --- New Report ---
 function startNew() {
+    // If free trial used and no credits/pro, show paywall
+    if (userStatus && !userStatus.is_pro && userStatus.plan !== 'pro') {
+        const remaining = (userStatus.single_reports_purchased || 0) - Math.max(0, (userStatus.reports_used || 0) - 1);
+        if (userStatus.reports_used > 0 && remaining <= 0) {
+            showPricingOnly();
+            document.getElementById('results-rooms').innerHTML = `
+                <div style="text-align:center;padding:24px 0;">
+                    <h3 style="margin:0 0 8px;">Your free trial report has been used</h3>
+                    <p style="color:#666;margin:0;">Purchase a report or upgrade to Pro to continue.</p>
+                </div>`;
+            return;
+        }
+    }
     rooms = [];
     currentReportId = null;
     addDefaultRooms();
@@ -1406,7 +1426,7 @@ function updateProfileUI() {
         avatar.textContent = initial;
         avatar.classList.remove('guest');
     } else {
-        avatar.textContent = '?';
+        avatar.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
         avatar.classList.add('guest');
     }
 }
