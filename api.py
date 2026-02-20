@@ -504,21 +504,43 @@ Be SPECIFIC about locations ("left wall near window" not just "walls"). Note BOT
 Return ONLY valid JSON. No markdown, no code fences.""",
     })
 
+    # Try fast model first, fall back to proven model
+    models_to_try = ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"]
+    raw = None
+    last_error = None
+
+    for model_id in models_to_try:
+        try:
+            logger.info(f"Analyzing {room_name} with {model_id}")
+            response = client.messages.create(
+                model=model_id,
+                max_tokens=1000,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = response.content[0].text.strip()
+            logger.info(f"Analysis of {room_name} complete with {model_id}")
+            break
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Model {model_id} failed for {room_name}: {e}")
+            continue
+
+    if raw is None:
+        logger.error(f"All models failed for {room_name}: {last_error}")
+        return json.dumps({
+            "overall_rating": "N/A",
+            "items": [{"name": "Error", "rating": "N/A", "notes": f"Analysis failed: {str(last_error)[:100]}"}],
+            "summary": "Analysis could not be completed. Please try again.",
+            "flags": ["Analysis error — please retry"]
+        })
+
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
-            messages=[{"role": "user", "content": content}],
-        )
-        raw = response.content[0].text.strip()
         # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
             if raw.endswith("```"):
                 raw = raw[:-3]
             raw = raw.strip()
-        # Validate JSON
-        import json
         parsed = json.loads(raw)
         return json.dumps(parsed)
     except json.JSONDecodeError:
@@ -528,14 +550,6 @@ Return ONLY valid JSON. No markdown, no code fences.""",
             "items": [{"name": "General Condition", "rating": "Fair", "notes": raw[:500]}],
             "summary": "AI analysis completed. See item details above.",
             "flags": []
-        })
-    except Exception as e:
-        logger.error(f"Claude API error for {room_name}: {e}")
-        return json.dumps({
-            "overall_rating": "N/A",
-            "items": [{"name": "Error", "rating": "N/A", "notes": f"Analysis failed: {str(e)[:100]}"}],
-            "summary": "Analysis could not be completed. Please try again.",
-            "flags": ["Analysis error — please retry"]
         })
 
 
