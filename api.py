@@ -1250,7 +1250,7 @@ async def email_report(request: Request, x_fingerprint: Optional[str] = Header(N
                 "Content-Type": "application/json",
             },
             json={
-                "from": "Condition Report <reports@condition-report.com>",
+                "from": "Condition Report <reports@dataweave-ai.com>",
                 "to": [email],
                 "subject": f"Property Condition Report — {address}",
                 "html": f"""
