@@ -1714,14 +1714,18 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
                 plan = existing_user["plan"] or "free"
                 stripe_cid = existing_user.get("stripe_customer_id")
 
-            # Check Stripe for active subscription
+            # Check Stripe for active Condition Report subscription (not DataWeave)
+            cr_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
             try:
                 customers = stripe.Customer.list(email=email, limit=1)
                 if customers.data:
-                    subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=1)
-                    if subscriptions.data:
-                        plan = "pro"
-                        stripe_cid = customers.data[0].id
+                    subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=10)
+                    for sub in subscriptions.data:
+                        for item in sub.get("items", {}).get("data", []):
+                            if item.get("price", {}).get("id") in cr_price_ids:
+                                plan = "pro"
+                                stripe_cid = customers.data[0].id
+                                break
             except Exception:
                 pass
 
@@ -1801,16 +1805,20 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
 
             plan = account["plan"] or "free"
 
-            # Auto-heal: check Stripe if plan shows free
-            if plan == "free":
+            # Auto-heal: check Stripe if plan shows free (only Condition Report prices)
+            cr_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
+            if plan == "free" and cr_price_ids:
                 try:
                     customers = stripe.Customer.list(email=email, limit=1)
                     if customers.data:
-                        subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=1)
-                        if subscriptions.data:
-                            plan = "pro"
-                            cur.execute("UPDATE accounts SET plan = 'pro', stripe_customer_id = %s WHERE email = %s",
-                                        (customers.data[0].id, email))
+                        subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=10)
+                        for sub in subscriptions.data:
+                            for item in sub.get("items", {}).get("data", []):
+                                if item.get("price", {}).get("id") in cr_price_ids:
+                                    plan = "pro"
+                                    cur.execute("UPDATE accounts SET plan = 'pro', stripe_customer_id = %s WHERE email = %s",
+                                                (customers.data[0].id, email))
+                                    break
                 except Exception:
                     pass
 
