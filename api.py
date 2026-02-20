@@ -1064,24 +1064,50 @@ async def og_image():
     img = Image.new("RGB", (1200, 630), color=(37, 99, 235))
     draw = ImageDraw.Draw(img)
 
-    try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 72)
-        sub_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
-        url_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-    except (OSError, IOError):
-        title_font = ImageFont.load_default()
-        sub_font = ImageFont.load_default()
-        url_font = ImageFont.load_default()
+    # Try multiple font paths (Railway Linux, macOS, fallback)
+    font_paths_bold = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
+    ]
+    font_paths_regular = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+    ]
+
+    def load_font(paths, size):
+        for p in paths:
+            try:
+                return ImageFont.truetype(p, size)
+            except (OSError, IOError):
+                continue
+        # Pillow 10+ supports sized default font
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:
+            return ImageFont.load_default()
+
+    title_font = load_font(font_paths_bold, 72)
+    sub_font = load_font(font_paths_regular, 38)
+    url_font = load_font(font_paths_regular, 30)
+
+    # Blue gradient stripe at top
+    for y in range(0, 8):
+        draw.rectangle([(0, y), (1200, y)], fill=(29, 78, 216))
 
     # Big bold headline (white on blue)
-    draw.text((80, 150), "Property Reports.", fill=(255, 255, 255), font=title_font)
-    draw.text((80, 240), "Fast & Professional.", fill=(255, 255, 255), font=title_font)
+    draw.text((80, 120), "Property Reports.", fill=(255, 255, 255), font=title_font)
+    draw.text((80, 210), "Fast & Professional.", fill=(255, 255, 255), font=title_font)
 
     # Subtitle
-    draw.text((80, 370), "Upload photos. Get a PDF report in 60 seconds.", fill=(191, 219, 254), font=sub_font)
+    draw.text((80, 340), "Upload photos. Get a PDF report in 60 seconds.", fill=(191, 219, 254), font=sub_font)
+
+    # Flow line
+    draw.text((80, 420), "Upload photos  >  AI analysis  >  PDF report", fill=(147, 197, 253), font=url_font)
 
     # URL bottom
-    draw.text((80, 530), "condition-report.com", fill=(147, 197, 253), font=url_font)
+    draw.text((80, 550), "condition-report.com", fill=(200, 220, 255), font=url_font)
 
     buf = BytesIO()
     img.save(buf, format="PNG")
