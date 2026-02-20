@@ -2239,7 +2239,7 @@ async def reset_password(request: Request):
     """Reset password using token from email."""
     body = await request.json()
     token = body.get("token", "")
-    new_password = body.get("password", "")
+    new_password = body.get("new_password", "") or body.get("password", "")
 
     if not token:
         raise HTTPException(400, "Reset token required")
