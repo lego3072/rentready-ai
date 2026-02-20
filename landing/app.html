@@ -1105,7 +1105,7 @@ function renderRooms() {
                     <div class="photo-upload-text">${uploadText}</div>
                     <div class="photo-upload-hint">JPG, PNG — up to 3 photos per room</div>
                 </div>
-                <input type="file" id="file_${room.id}" accept="image/*" multiple capture="environment"
+                <input type="file" id="file_${room.id}" accept="image/*,.pdf" multiple
                     style="display:none" onchange="handlePhotos('${room.id}', this.files)">
                 ${thumbsHtml ? `<div class="photo-thumbs">${thumbsHtml}</div>` : ''}
             </div>`;
