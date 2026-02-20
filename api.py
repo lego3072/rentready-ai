@@ -185,6 +185,16 @@ try:
                     CREATE INDEX IF NOT EXISTS idx_share_tokens_expires ON share_tokens(expires_at)
                 """)
 
+                # Processed Stripe sessions (prevent double-crediting from webhook + verify)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS processed_stripe_sessions (
+                        session_id VARCHAR(255) PRIMARY KEY,
+                        fingerprint VARCHAR(255) NOT NULL,
+                        purchase_type VARCHAR(32) NOT NULL,
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
                 conn.commit()
                 cur.close()
                 logger.info("Database tables initialized successfully")
@@ -457,6 +467,37 @@ def add_single_report_purchase(fingerprint: str):
         finally:
             if conn:
                 release_db_connection(conn)
+
+
+_processed_sessions_mem = set()  # in-memory fallback
+
+def mark_session_processed(session_id: str, fingerprint: str, purchase_type: str) -> bool:
+    """Mark a Stripe session as processed. Returns True if newly marked, False if already processed."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO processed_stripe_sessions (session_id, fingerprint, purchase_type) VALUES (%s, %s, %s) ON CONFLICT (session_id) DO NOTHING",
+                (session_id, fingerprint, purchase_type),
+            )
+            inserted = cur.rowcount > 0
+            conn.commit()
+            cur.close()
+            return inserted
+        except Exception as e:
+            logger.error(f"mark_session_processed error: {e}")
+            # Fall through to in-memory
+        finally:
+            if conn:
+                release_db_connection(conn)
+
+    # In-memory fallback
+    if session_id in _processed_sessions_mem:
+        return False
+    _processed_sessions_mem.add(session_id)
+    return True
 
 
 def check_access(user: dict) -> dict:
@@ -1327,30 +1368,15 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
 
     purchase_type = session.metadata.get("type", "")
 
-    if purchase_type == "single":
-        # Check if already credited (idempotent)
-        user = get_user(fp)
-        # Use session ID tracking to prevent double-credit
-        already_credited = False
-        if POSTGRES_AVAILABLE:
-            conn = None
-            try:
-                conn = get_db_connection()
-                cur = conn.cursor()
-                cur.execute("SELECT 1 FROM users WHERE fingerprint = %s AND single_reports_purchased > %s",
-                            (fp, max(0, user["reports_used"] - 1)))
-                already_credited = cur.fetchone() is not None
-                cur.close()
-            except Exception:
-                pass
-            finally:
-                if conn:
-                    release_db_connection(conn)
+    # Idempotency: check if this session was already processed (by webhook or previous verify call)
+    if not mark_session_processed(session_id, fp, purchase_type):
+        # Already processed — just return success without double-crediting
+        return {"verified": True, "type": purchase_type, "already_processed": True}
 
-        if not already_credited:
-            add_single_report_purchase(fp)
-            if fp in users_db:
-                users_db[fp]["single_reports_purchased"] += 1
+    if purchase_type == "single":
+        add_single_report_purchase(fp)
+        if fp in users_db:
+            users_db[fp]["single_reports_purchased"] += 1
 
     elif purchase_type == "pro":
         customer_id = session.get("customer", "") or ""
@@ -1590,23 +1616,26 @@ async def stripe_webhook(request: Request):
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
+        stripe_session_id = session.get("id", "")
         fp = session.get("metadata", {}).get("fingerprint", "")
         purchase_type = session.get("metadata", {}).get("type", "")
 
         if fp:
-            if purchase_type == "single":
-                add_single_report_purchase(fp)
-                # In-memory fallback
-                if fp in users_db:
-                    users_db[fp]["single_reports_purchased"] += 1
-            elif purchase_type == "pro":
-                customer_id = session.get("customer", "")
-                update_user_plan(fp, "pro", customer_id)
-                # In-memory fallback
-                if fp in users_db:
-                    users_db[fp]["is_pro"] = True
-                    users_db[fp]["plan"] = "pro"
-                    users_db[fp]["stripe_customer_id"] = customer_id
+            # Idempotency: skip if already processed by /api/verify-payment
+            if not mark_session_processed(stripe_session_id, fp, purchase_type):
+                logger.info(f"Webhook skipping already-processed session {stripe_session_id}")
+            else:
+                if purchase_type == "single":
+                    add_single_report_purchase(fp)
+                    if fp in users_db:
+                        users_db[fp]["single_reports_purchased"] += 1
+                elif purchase_type == "pro":
+                    customer_id = session.get("customer", "")
+                    update_user_plan(fp, "pro", customer_id)
+                    if fp in users_db:
+                        users_db[fp]["is_pro"] = True
+                        users_db[fp]["plan"] = "pro"
+                        users_db[fp]["stripe_customer_id"] = customer_id
 
     elif event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
