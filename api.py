@@ -417,8 +417,8 @@ def resize_image(image_bytes: bytes, max_size: int = 768) -> bytes:
     return buf.getvalue()
 
 
-async def analyze_room_photos(room_name: str, photos: list[bytes]) -> str:
-    """Send room photos to Claude Vision and get condition description."""
+async def analyze_room_photos(room_name: str, photos: list[bytes], report_type: str = "Move-In") -> str:
+    """Send room photos to Claude Vision and get structured condition assessment."""
     content = []
     for photo_bytes in photos:
         resized = resize_image(photo_bytes)
@@ -432,19 +432,111 @@ async def analyze_room_photos(room_name: str, photos: list[bytes]) -> str:
             },
         })
 
+    # Inspection-type-specific instructions
+    type_instructions = {
+        "Move-In": """INSPECTION TYPE: MOVE-IN (Baseline Condition Assessment)
+PURPOSE: Document the property's condition BEFORE tenant occupancy. This is the legal baseline for security deposit disputes.
+FOCUS AREAS:
+- Is this room MOVE-IN READY? Flag anything that isn't (uncleaned, damaged, incomplete repairs)
+- Document existing defects clearly — this protects both landlord and tenant
+- Note items that are new, recently cleaned/painted, or freshly maintained as POSITIVES
+- Check for safety/compliance: smoke detectors, proper locks, no exposed wiring, no mold
+- Identify any maintenance needed BEFORE the tenant moves in""",
+        "Move-Out": """INSPECTION TYPE: MOVE-OUT (Damage Assessment)
+PURPOSE: Identify damage BEYOND NORMAL WEAR AND TEAR for security deposit evaluation.
+FOCUS AREAS:
+- DISTINGUISH between normal wear (faded paint, minor scuffs, carpet wear paths near doors) vs TENANT DAMAGE (holes, stains, burns, broken items, unauthorized modifications)
+- Flag cleaning issues: grease buildup, grime, mold, debris left behind
+- Note anything requiring repair/replacement before next tenant
+- Compare to what a reasonable move-in condition would look like
+- Check for removed fixtures, missing items, or unauthorized alterations""",
+        "Periodic": """INSPECTION TYPE: PERIODIC / ROUTINE INSPECTION
+PURPOSE: Identify maintenance issues, safety hazards, and lease compliance during tenancy.
+FOCUS AREAS:
+- SAFETY HAZARDS: smoke/CO detectors working, water leaks, mold/mildew, electrical issues, trip hazards
+- MAINTENANCE NEEDS: caulking, weatherstripping, HVAC filters, plumbing drips, pest signs
+- LEASE COMPLIANCE: unauthorized modifications, unauthorized pets, hoarding, blocked exits
+- PREVENTIVE: catch small issues before they become costly repairs
+- Note tenant-maintained areas: cleanliness, care of fixtures/appliances""",
+    }
+
+    type_ctx = type_instructions.get(report_type, type_instructions["Move-In"])
+
     content.append({
         "type": "text",
-        "text": f"""Property inspector: describe the condition of this "{room_name}" for a legal condition report.
+        "text": f"""You are a certified property inspector documenting this "{room_name}" for a legal condition report.
 
-Cover ONLY what's visible: walls, flooring, ceiling, windows, doors, fixtures, cleanliness, damage. Skip anything not shown. 1-2 sentences per category, paragraph format, professional tone. Be specific about locations.""",
+{type_ctx}
+
+A condition report is a REPORT CARD for the property. It documents defects, maintenance needs, compliance issues, and safety concerns with photo evidence.
+
+Analyze the photo(s) and return a JSON object with this EXACT structure:
+{{
+  "overall_rating": "Good" | "Fair" | "Poor",
+  "items": [
+    {{
+      "name": "Walls",
+      "rating": "Good" | "Fair" | "Poor" | "N/A",
+      "notes": "Brief specific description"
+    }}
+  ],
+  "summary": "2 sentence overview: what stands out most (positive or negative), and the key takeaway for the landlord/tenant.",
+  "flags": ["Specific actionable issues requiring attention — empty array if none"]
+}}
+
+CHECKLIST (assess only what's visible, skip others):
+- Walls (paint condition, holes, marks, cracks, water damage)
+- Ceiling (stains, cracks, peeling, discoloration)
+- Flooring (type, wear, stains, scratches, damage)
+- Windows (glass, frames, locks, screens, seals)
+- Doors (condition, hardware, locks, hinges)
+- Lighting/Electrical (fixtures, outlets, switches, covers)
+- Cleanliness (dust, grime, residue, debris)
+- Fixtures & Appliances (faucets, cabinets, countertops, appliances)
+
+RATINGS:
+- Good = Clean, functional, no damage, acceptable condition
+- Fair = Minor cosmetic wear, functional but needs attention
+- Poor = Significant damage, repair/replacement needed, safety concern
+
+Be SPECIFIC about locations ("left wall near window" not just "walls"). Note BOTH positives and negatives.
+
+Return ONLY valid JSON. No markdown, no code fences.""",
     })
 
-    response = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
-        max_tokens=800,
-        messages=[{"role": "user", "content": content}],
-    )
-    return response.content[0].text
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": content}],
+        )
+        raw = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+        # Validate JSON
+        import json
+        parsed = json.loads(raw)
+        return json.dumps(parsed)
+    except json.JSONDecodeError:
+        # Fallback: return raw text wrapped in a basic structure
+        return json.dumps({
+            "overall_rating": "Fair",
+            "items": [{"name": "General Condition", "rating": "Fair", "notes": raw[:500]}],
+            "summary": "AI analysis completed. See item details above.",
+            "flags": []
+        })
+    except Exception as e:
+        logger.error(f"Claude API error for {room_name}: {e}")
+        return json.dumps({
+            "overall_rating": "N/A",
+            "items": [{"name": "Error", "rating": "N/A", "notes": f"Analysis failed: {str(e)[:100]}"}],
+            "summary": "Analysis could not be completed. Please try again.",
+            "flags": ["Analysis error — please retry"]
+        })
 
 
 def generate_pdf_report(report_data: dict) -> str:
@@ -545,9 +637,48 @@ def generate_pdf_report(report_data: dict) -> str:
         elements.append(info_table)
         elements.append(Spacer(1, 20))
 
+    # Rating colors for PDF
+    rating_colors = {
+        "Good": colors.HexColor("#16a34a"),
+        "Fair": colors.HexColor("#f59e0b"),
+        "Poor": colors.HexColor("#dc2626"),
+        "N/A": colors.HexColor("#9ca3af"),
+    }
+
+    rating_style = ParagraphStyle(
+        "RatingText", parent=styles["Normal"], fontSize=10, fontName="Helvetica-Bold",
+    )
+    item_name_style = ParagraphStyle(
+        "ItemName", parent=styles["Normal"], fontSize=10, fontName="Helvetica-Bold",
+        textColor=colors.HexColor("#333333"),
+    )
+    item_notes_style = ParagraphStyle(
+        "ItemNotes", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#555555"),
+    )
+    flag_style = ParagraphStyle(
+        "FlagText", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#dc2626"), fontName="Helvetica-Bold",
+    )
+    summary_style = ParagraphStyle(
+        "SummaryText", parent=styles["Normal"], fontSize=10, leading=14,
+        textColor=colors.HexColor("#1a1a2e"), fontName="Helvetica-Bold",
+        spaceBefore=4, spaceAfter=8,
+    )
+
     # Room sections
     for room in report_data.get("rooms", []):
-        elements.append(Paragraph(room["name"], room_title_style))
+        # Parse structured description
+        description_raw = room.get("description", "{}")
+        try:
+            room_data = json.loads(description_raw) if isinstance(description_raw, str) else description_raw
+        except (json.JSONDecodeError, TypeError):
+            room_data = {"overall_rating": "N/A", "items": [], "summary": description_raw, "flags": []}
+
+        overall = room_data.get("overall_rating", "N/A")
+        rc = rating_colors.get(overall, colors.HexColor("#9ca3af"))
+
+        elements.append(Paragraph(f'{room["name"]}  —  Overall: {overall}', room_title_style))
 
         # Add room photos
         photo_row = []
@@ -561,7 +692,6 @@ def generate_pdf_report(report_data: dict) -> str:
                     pass
 
         if photo_row:
-            # Create a table for photos side by side
             photo_table = Table([photo_row], colWidths=[2.2 * inch] * len(photo_row))
             photo_table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -570,12 +700,51 @@ def generate_pdf_report(report_data: dict) -> str:
             ]))
             elements.append(photo_table)
 
-        # Condition description
-        description = room.get("description", "No description available.")
-        for para in description.split("\n\n"):
-            para = para.strip()
-            if para:
-                elements.append(Paragraph(para, body_style))
+        # Summary
+        summary_text = room_data.get("summary", "")
+        if summary_text:
+            elements.append(Paragraph(summary_text, summary_style))
+
+        # Item checklist table
+        items = room_data.get("items", [])
+        if items:
+            table_data = [["Item", "Rating", "Condition Notes"]]
+            for item in items:
+                item_rating = item.get("rating", "N/A")
+                table_data.append([
+                    item.get("name", ""),
+                    item_rating,
+                    item.get("notes", ""),
+                ])
+
+            item_table = Table(table_data, colWidths=[1.3 * inch, 0.8 * inch, 4.4 * inch])
+            table_styles = [
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#333333")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+            # Color-code ratings
+            for row_idx in range(1, len(table_data)):
+                r = table_data[row_idx][1]
+                if r in rating_colors:
+                    table_styles.append(("TEXTCOLOR", (1, row_idx), (1, row_idx), rating_colors[r]))
+                    table_styles.append(("FONTNAME", (1, row_idx), (1, row_idx), "Helvetica-Bold"))
+
+            item_table.setStyle(TableStyle(table_styles))
+            elements.append(item_table)
+
+        # Flags
+        flags = room_data.get("flags", [])
+        if flags:
+            elements.append(Spacer(1, 6))
+            for flag in flags:
+                if flag:
+                    elements.append(Paragraph(f"⚠ {flag}", flag_style))
 
         elements.append(Spacer(1, 10))
 
@@ -808,7 +977,7 @@ async def analyze_report(
             continue
 
         # Call Claude Vision
-        description = await analyze_room_photos(room_name, photo_bytes_list)
+        description = await analyze_room_photos(room_name, photo_bytes_list, report_type)
 
         analyzed_rooms.append({
             "name": room_name,

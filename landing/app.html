@@ -352,13 +352,13 @@
             border: 1.5px solid #e5e7eb;
             border-radius: 12px;
             padding: 16px;
-            margin-bottom: 12px;
-            background: #fafafa;
+            margin-bottom: 14px;
+            background: #fff;
         }
         .result-room h3 {
             font-size: 16px;
             font-weight: 700;
-            margin-bottom: 10px;
+            margin-bottom: 4px;
             color: #1a1a2e;
         }
         .result-room p {
@@ -366,6 +366,77 @@
             color: #444;
             line-height: 1.7;
         }
+        .room-overall {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .rating-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .rating-badge.good { background: #dcfce7; color: #166534; }
+        .rating-badge.fair { background: #fef3c7; color: #92400e; }
+        .rating-badge.poor { background: #fef2f2; color: #991b1b; }
+        .room-summary {
+            font-size: 14px;
+            color: #1a1a2e;
+            font-weight: 600;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        .checklist-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+        .checklist-table th {
+            background: #f8f9fa;
+            font-size: 12px;
+            font-weight: 700;
+            color: #666;
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 2px solid #e5e7eb;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .checklist-table td {
+            font-size: 13px;
+            padding: 8px 10px;
+            border-bottom: 1px solid #f0f0f0;
+            vertical-align: top;
+        }
+        .checklist-table tr:last-child td { border-bottom: none; }
+        .item-rating {
+            font-weight: 700;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .item-rating.good { color: #16a34a; }
+        .item-rating.fair { color: #f59e0b; }
+        .item-rating.poor { color: #dc2626; }
+        .item-notes { color: #555; line-height: 1.5; }
+        .flag-list {
+            margin-top: 10px;
+            padding: 10px 12px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+        }
+        .flag-item {
+            font-size: 13px;
+            color: #991b1b;
+            font-weight: 600;
+            padding: 3px 0;
+        }
+        .flag-item::before { content: "⚠ "; }
 
         /* Loading */
         .loading {
@@ -1220,10 +1291,50 @@ async function analyzePhotos() {
         const resultsDiv = document.getElementById('results-rooms');
         resultsDiv.innerHTML = '';
         result.rooms.forEach(room => {
+            let data;
+            try {
+                data = typeof room.description === 'string' ? JSON.parse(room.description) : room.description;
+            } catch(e) {
+                data = { overall_rating: 'N/A', items: [], summary: room.description, flags: [] };
+            }
+
+            const rating = (data.overall_rating || 'N/A').toLowerCase();
+            const ratingClass = rating === 'good' ? 'good' : rating === 'fair' ? 'fair' : rating === 'poor' ? 'poor' : '';
+            const ratingIcon = rating === 'good' ? '✅' : rating === 'fair' ? '⚠️' : rating === 'poor' ? '🔴' : '—';
+
+            let itemsHtml = '';
+            if (data.items && data.items.length > 0) {
+                const rows = data.items.map(item => {
+                    const ir = (item.rating || 'N/A').toLowerCase();
+                    const irClass = ir === 'good' ? 'good' : ir === 'fair' ? 'fair' : ir === 'poor' ? 'poor' : '';
+                    const irIcon = ir === 'good' ? '✅' : ir === 'fair' ? '⚠️' : ir === 'poor' ? '🔴' : '—';
+                    return `<tr>
+                        <td style="font-weight:600;">${item.name}</td>
+                        <td><span class="item-rating ${irClass}">${irIcon} ${item.rating || 'N/A'}</span></td>
+                        <td class="item-notes">${item.notes || ''}</td>
+                    </tr>`;
+                }).join('');
+                itemsHtml = `<table class="checklist-table">
+                    <thead><tr><th>Item</th><th>Rating</th><th>Condition</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            }
+
+            let flagsHtml = '';
+            if (data.flags && data.flags.length > 0) {
+                const flagItems = data.flags.filter(f => f).map(f => `<div class="flag-item">${f}</div>`).join('');
+                if (flagItems) flagsHtml = `<div class="flag-list">${flagItems}</div>`;
+            }
+
             resultsDiv.innerHTML += `
                 <div class="result-room">
-                    <h3>${room.name}</h3>
-                    <p>${room.description.replace(/\n/g, '<br>')}</p>
+                    <div class="room-overall">
+                        <h3>${room.name}</h3>
+                        <span class="rating-badge ${ratingClass}">${ratingIcon} ${data.overall_rating || 'N/A'}</span>
+                    </div>
+                    ${data.summary ? `<div class="room-summary">${data.summary}</div>` : ''}
+                    ${itemsHtml}
+                    ${flagsHtml}
                 </div>`;
         });
 
