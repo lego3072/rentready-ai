@@ -861,6 +861,7 @@
 let fingerprint = localStorage.getItem('rr_fingerprint') || generateFingerprint();
 let rooms = [];
 let currentReportId = null;
+let viewingResults = false;
 let userStatus = null;
 
 function generateFingerprint() {
@@ -951,8 +952,9 @@ async function loadUserStatus() {
         updateStatusDisplay();
         showPastReports();
 
-        // Hard paywall: if free trial used and no paid access, lock them out immediately
-        if (userStatus.reports_used > 0 && !hasPaidAccess()) {
+        // Hard paywall: if free trial used and no paid access, lock them out
+        // But NOT if they're actively viewing results from their free trial
+        if (userStatus.reports_used > 0 && !hasPaidAccess() && !viewingResults) {
             showHardPaywall();
         }
     } catch (e) {
@@ -1237,8 +1239,10 @@ async function analyzePhotos() {
             document.getElementById('results-rooms').appendChild(nudge);
         }
 
-        // Refresh user status
+        // Refresh user status but don't trigger paywall (they're viewing their report)
+        viewingResults = true;
         await loadUserStatus();
+        viewingResults = false;
 
     } catch (err) {
         document.getElementById('loading-state').innerHTML = `
