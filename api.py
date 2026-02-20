@@ -403,7 +403,7 @@ def encode_image(image_bytes: bytes) -> str:
     return base64.standard_b64encode(image_bytes).decode("utf-8")
 
 
-def resize_image(image_bytes: bytes, max_size: int = 1024) -> bytes:
+def resize_image(image_bytes: bytes, max_size: int = 768) -> bytes:
     """Resize image to max dimension while keeping aspect ratio."""
     img = Image.open(BytesIO(image_bytes))
     if img.mode == "RGBA":
@@ -434,31 +434,14 @@ async def analyze_room_photos(room_name: str, photos: list[bytes]) -> str:
 
     content.append({
         "type": "text",
-        "text": f"""You are a professional property inspector creating a move-in/move-out condition report.
+        "text": f"""Property inspector: describe the condition of this "{room_name}" for a legal condition report.
 
-Analyze the photo(s) of the "{room_name}" and describe the condition in detail.
-
-For EACH of these categories that are visible, provide a condition assessment:
-- Walls & Paint (color, condition, marks, holes, cracks)
-- Flooring (type, condition, stains, damage)
-- Ceiling (condition, stains, cracks)
-- Windows (condition, screens, blinds/curtains)
-- Doors (condition, locks, handles)
-- Lighting/Electrical (fixtures, outlets, switches)
-- Fixtures & Appliances (if visible — counters, cabinets, sink, toilet, tub, etc.)
-- General Cleanliness
-- Notable Damage or Issues
-
-Write in professional, objective language suitable for a legal document. Be specific about locations (e.g., "north wall", "near the window", "left of the door"). Use terms like "good condition", "normal wear", "minor scuff", "significant damage", etc.
-
-If something is NOT visible in the photos, skip it — don't guess.
-
-Format as a clean paragraph per category, no bullet points. Keep each category to 1-2 sentences.""",
+Cover ONLY what's visible: walls, flooring, ceiling, windows, doors, fixtures, cleanliness, damage. Skip anything not shown. 1-2 sentences per category, paragraph format, professional tone. Be specific about locations.""",
     })
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1500,
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=800,
         messages=[{"role": "user", "content": content}],
     )
     return response.content[0].text
