@@ -806,12 +806,27 @@ function uploadHeaders() {
     return { 'X-Fingerprint': fingerprint };
 }
 
+function showToast(message, type) {
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:opacity .3s;';
+    toast.style.background = type === 'success' ? '#16a34a' : type === 'info' ? '#2563eb' : '#dc2626';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
+}
+
 // --- Init ---
 async function init() {
-    // Check for payment success
+    // Check for payment result
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment') === 'success') {
         window.history.replaceState({}, '', '/');
+        const type = params.get('type');
+        const msg = type === 'pro' ? 'Welcome to Pro! You have unlimited reports.' : 'Payment successful! Your report credit has been added.';
+        showToast(msg, 'success');
+    } else if (params.get('payment') === 'cancelled') {
+        window.history.replaceState({}, '', '/');
+        showToast('Payment was cancelled.', 'info');
     }
 
     await loadUserStatus();
@@ -1074,6 +1089,7 @@ async function analyzePhotos() {
         document.getElementById('loading-state').classList.add('hidden');
         document.getElementById('results-state').classList.remove('hidden');
         document.getElementById('download-btn').classList.remove('hidden');
+        document.getElementById('email-btn').classList.remove('hidden');
 
         const resultsDiv = document.getElementById('results-rooms');
         resultsDiv.innerHTML = '';
