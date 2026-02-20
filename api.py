@@ -457,7 +457,7 @@ Format as a clean paragraph per category, no bullet points. Keep each category t
     })
 
     response = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5-20241022",
         max_tokens=1500,
         messages=[{"role": "user", "content": content}],
     )
@@ -662,6 +662,32 @@ async def og_image():
     img.save(buf, format="PNG")
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
+
+
+@app.get("/robots.txt")
+async def robots_txt():
+    content = """User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /static/
+
+Sitemap: https://condition-report.com/sitemap.xml
+"""
+    return HTMLResponse(content=content, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://condition-report.com</loc>
+        <changefreq>weekly</changefreq>
+        <priority>1.0</priority>
+    </url>
+</urlset>
+"""
+    return HTMLResponse(content=content, media_type="application/xml")
 
 
 @app.get("/", response_class=HTMLResponse)

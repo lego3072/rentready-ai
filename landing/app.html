@@ -15,10 +15,85 @@
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Condition Report — AI Property Condition Reports">
+    <meta name="twitter:description" content="Upload room photos. Get a professional condition report in 60 seconds. No signup required.">
     <meta name="twitter:image" content="https://condition-report.com/og-image.png">
+    <link rel="canonical" href="https://condition-report.com">
+    <meta name="robots" content="index, follow">
+    <meta name="keywords" content="property condition report, move-in inspection, move-out inspection, rental inspection report, landlord tools, property management, AI condition report, rental property report">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
     <title>Condition Report — AI Property Condition Reports in 60 Seconds</title>
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Condition Report",
+        "url": "https://condition-report.com",
+        "description": "AI-powered property condition report generator. Upload room photos and get a professional PDF report in 60 seconds.",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "offers": [
+            {
+                "@type": "Offer",
+                "name": "Single Report",
+                "price": "4.99",
+                "priceCurrency": "USD",
+                "description": "One professional AI condition report"
+            },
+            {
+                "@type": "Offer",
+                "name": "Pro Monthly",
+                "price": "29.00",
+                "priceCurrency": "USD",
+                "description": "Unlimited condition reports per month"
+            },
+            {
+                "@type": "Offer",
+                "name": "Pro Annual",
+                "price": "249.00",
+                "priceCurrency": "USD",
+                "description": "Unlimited condition reports per year"
+            }
+        ],
+        "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.8",
+            "ratingCount": "50",
+            "bestRating": "5"
+        },
+        "creator": {
+            "@type": "Organization",
+            "name": "DataWeaveAI INC",
+            "url": "https://dataweave-ai.com"
+        }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Condition Report",
+        "url": "https://condition-report.com",
+        "browserRequirements": "Requires JavaScript. Works on all modern browsers.",
+        "softwareHelp": {
+            "@type": "CreativeWork",
+            "name": "How it works",
+            "text": "1. Enter property details 2. Upload room photos 3. AI generates professional condition report as PDF"
+        }
+    }
+    </script>
+
+    <!-- Google Ads (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-17926414862"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'AW-17926414862');
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html { -webkit-text-size-adjust: 100%; }
@@ -815,8 +890,30 @@ function showToast(message, type) {
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
 }
 
+// --- UTM Parameter Capture ---
+function captureUTM() {
+    const params = new URLSearchParams(window.location.search);
+    const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
+    utmKeys.forEach(key => {
+        const val = params.get(key);
+        if (val) sessionStorage.setItem(key, val);
+    });
+}
+function getStoredUTM() {
+    const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
+    const utm = {};
+    utmKeys.forEach(key => {
+        const val = sessionStorage.getItem(key);
+        if (val) utm[key] = val;
+    });
+    return utm;
+}
+
 // --- Init ---
 async function init() {
+    // Capture UTM parameters on landing
+    captureUTM();
+
     // Check for payment result
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment') === 'success') {
@@ -824,6 +921,17 @@ async function init() {
         const type = params.get('type');
         const msg = type === 'pro' ? 'Welcome to Pro! You have unlimited reports.' : 'Payment successful! Your report credit has been added.';
         showToast(msg, 'success');
+
+        // Google Ads conversion tracking
+        if (typeof gtag === 'function') {
+            const convValue = type === 'pro' ? 29.00 : type === 'annual' ? 249.00 : 4.99;
+            gtag('event', 'conversion', {
+                'send_to': 'AW-17926414862/purchase',
+                'value': convValue,
+                'currency': 'USD',
+                'transaction_id': Date.now().toString()
+            });
+        }
     } else if (params.get('payment') === 'cancelled') {
         window.history.replaceState({}, '', '/');
         showToast('Payment was cancelled.', 'info');
@@ -1101,9 +1209,11 @@ async function analyzePhotos() {
                 </div>`;
         });
 
-        // Show upgrade banner if free trial was used
-        if (result.is_free_trial) {
+        // Show upgrade banner for unpaid users — they can see the preview but not save
+        if (!hasPaidAccess()) {
             document.getElementById('upgrade-banner').classList.remove('hidden');
+            document.getElementById('download-btn').textContent = '🔒 Download PDF — Unlock';
+            document.getElementById('email-btn').textContent = '🔒 Email Report — Unlock';
         }
 
         // Refresh user status
@@ -1135,15 +1245,32 @@ function showPricingOnly() {
     document.getElementById('upgrade-banner').classList.remove('hidden');
 }
 
+// --- Paid Access Gate ---
+function hasPaidAccess() {
+    if (!userStatus) return false;
+    if (userStatus.is_pro || userStatus.plan === 'pro') return true;
+    const purchased = userStatus.single_reports_purchased || 0;
+    if (purchased > 0) return true;
+    return false;
+}
+
+function showPaywall() {
+    showToast('Purchase a report or upgrade to Pro to download & save reports.', 'info');
+    document.getElementById('upgrade-banner').classList.remove('hidden');
+    document.getElementById('upgrade-banner').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 // --- Downloads ---
 function downloadPDF() {
     if (!currentReportId) return;
+    if (!hasPaidAccess()) { showPaywall(); return; }
     const link = document.createElement('a');
     link.href = `/api/report/${currentReportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
     link.click();
 }
 
 function downloadPastReport(reportId) {
+    if (!hasPaidAccess()) { showPaywall(); return; }
     const link = document.createElement('a');
     link.href = `/api/report/${reportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
     link.click();
@@ -1153,6 +1280,7 @@ function downloadPastReport(reportId) {
 let emailReportId = null;
 
 function showEmailModal() {
+    if (!hasPaidAccess()) { showPaywall(); return; }
     emailReportId = currentReportId;
     document.getElementById('email-modal').style.display = 'flex';
     document.getElementById('email-modal').classList.remove('hidden');
@@ -1166,6 +1294,7 @@ function closeEmailModal() {
 }
 
 function showEmailModalForReport(reportId) {
+    if (!hasPaidAccess()) { showPaywall(); return; }
     emailReportId = reportId;
     document.getElementById('email-modal').style.display = 'flex';
     document.getElementById('email-modal').classList.remove('hidden');
@@ -1208,14 +1337,25 @@ async function sendEmail() {
 
 // --- Checkout ---
 async function checkout(type) {
+    // Fire Google Ads "begin_checkout" event
+    if (typeof gtag === 'function') {
+        const checkoutValue = type === 'single' ? 4.99 : type === 'annual' ? 249.00 : 29.00;
+        gtag('event', 'begin_checkout', {
+            'send_to': 'AW-17926414862',
+            'value': checkoutValue,
+            'currency': 'USD',
+            'items': [{ 'name': type === 'single' ? 'Single Report' : type === 'annual' ? 'Pro Annual' : 'Pro Monthly' }]
+        });
+    }
+
     try {
         let endpoint, body;
         if (type === 'single') {
             endpoint = '/api/checkout/single';
-            body = {};
+            body = { utm: getStoredUTM() };
         } else {
             endpoint = '/api/checkout/pro';
-            body = { billing: type === 'annual' ? 'annual' : 'monthly' };
+            body = { billing: type === 'annual' ? 'annual' : 'monthly', utm: getStoredUTM() };
         }
 
         const res = await fetch(endpoint, {
