@@ -557,6 +557,10 @@ async def send_transactional_email(to_email: str, subject: str, html_body: str):
                 },
                 timeout=10,
             )
+            if resp.status_code != 200:
+                logger.error(f"Resend API error {resp.status_code}: {resp.text}")
+            else:
+                logger.info(f"Email sent to {to_email}: {subject}")
             return resp.status_code == 200
     except Exception as e:
         logger.error(f"Email send error: {e}")
@@ -2234,6 +2238,7 @@ async def request_password_reset(request: Request):
 
         cur.execute("SELECT id FROM accounts WHERE email = %s", (email,))
         account = cur.fetchone()
+        logger.info(f"Password reset requested for {email} — account found: {bool(account)}")
 
         if account:
             # Delete old reset tokens for this email
