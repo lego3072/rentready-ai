@@ -1061,23 +1061,27 @@ async def og_image():
     from PIL import ImageDraw, ImageFont
     from fastapi.responses import StreamingResponse
 
-    img = Image.new("RGB", (1200, 630), color=(248, 249, 250))
+    img = Image.new("RGB", (1200, 630), color=(37, 99, 235))
     draw = ImageDraw.Draw(img)
 
-    # Top accent bar
-    draw.rectangle([(0, 0), (1200, 8)], fill=(37, 99, 235))
-
     try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
-        sub_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 72)
+        sub_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+        url_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
     except (OSError, IOError):
         title_font = ImageFont.load_default()
         sub_font = ImageFont.load_default()
+        url_font = ImageFont.load_default()
 
-    draw.text((80, 200), "Condition Report", fill=(26, 26, 46), font=title_font)
-    draw.text((80, 300), "AI Property Condition Reports in 60 Seconds", fill=(100, 100, 100), font=sub_font)
-    draw.text((80, 380), "Upload photos  >  AI analysis  >  PDF report", fill=(37, 99, 235), font=sub_font)
-    draw.text((80, 480), "condition-report.com", fill=(150, 150, 150), font=sub_font)
+    # Big bold headline (white on blue)
+    draw.text((80, 150), "Property Reports.", fill=(255, 255, 255), font=title_font)
+    draw.text((80, 240), "Fast & Professional.", fill=(255, 255, 255), font=title_font)
+
+    # Subtitle
+    draw.text((80, 370), "Upload photos. Get a PDF report in 60 seconds.", fill=(191, 219, 254), font=sub_font)
+
+    # URL bottom
+    draw.text((80, 530), "condition-report.com", fill=(147, 197, 253), font=url_font)
 
     buf = BytesIO()
     img.save(buf, format="PNG")
