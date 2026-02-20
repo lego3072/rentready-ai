@@ -1217,8 +1217,13 @@ async function analyzePhotos() {
         // Show upgrade banner for unpaid users — they can see the preview but not save
         if (!hasPaidAccess()) {
             document.getElementById('upgrade-banner').classList.remove('hidden');
-            document.getElementById('download-btn').textContent = '🔒 Download PDF — Unlock';
-            document.getElementById('email-btn').textContent = '🔒 Email Report — Unlock';
+            document.getElementById('download-btn').textContent = '🔒 Unlock to Download PDF';
+            document.getElementById('email-btn').textContent = '🔒 Unlock to Email Report';
+            // Add conversion nudge below the results
+            const nudge = document.createElement('div');
+            nudge.style.cssText = 'text-align:center;padding:16px;margin-top:12px;background:#fffbeb;border:1px solid #f59e0b;border-radius:10px;';
+            nudge.innerHTML = '<p style="margin:0;font-size:14px;color:#92400e;font-weight:600;">Your report is ready — purchase to download the PDF and email it.</p>';
+            document.getElementById('results-rooms').appendChild(nudge);
         }
 
         // Refresh user status
@@ -1249,10 +1254,19 @@ function showHardPaywall() {
         <div style="text-align:center;padding:32px 16px;">
             <div style="font-size:48px;margin-bottom:16px;">✅</div>
             <h2 style="margin:0 0 8px;font-size:22px;">You've seen what our AI can do</h2>
-            <p style="color:#666;margin:0 0 4px;font-size:15px;">Your free trial report has been used.</p>
-            <p style="color:#1a1a2e;margin:0 0 20px;font-size:15px;font-weight:600;">Unlock full access to download, email, and create unlimited reports.</p>
+            <p style="color:#666;margin:0 0 4px;font-size:15px;">Your free trial has been used.</p>
+            <p style="color:#1a1a2e;margin:0 0 20px;font-size:15px;font-weight:600;">Choose a plan below to download reports, email them, and generate unlimited condition reports.</p>
+            <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:12px;">
+                <div style="background:#f0f7ff;border:1px solid #2563eb;border-radius:8px;padding:8px 12px;font-size:13px;color:#2563eb;">✓ Download PDF reports</div>
+                <div style="background:#f0f7ff;border:1px solid #2563eb;border-radius:8px;padding:8px 12px;font-size:13px;color:#2563eb;">✓ Email reports</div>
+                <div style="background:#f0f7ff;border:1px solid #2563eb;border-radius:8px;padding:8px 12px;font-size:13px;color:#2563eb;">✓ Unlimited rooms</div>
+                <div style="background:#f0f7ff;border:1px solid #2563eb;border-radius:8px;padding:8px 12px;font-size:13px;color:#2563eb;">✓ Report history</div>
+            </div>
         </div>`;
     document.getElementById('upgrade-banner').classList.remove('hidden');
+    // Hide past reports section for non-signed-in users
+    const pastSection = document.getElementById('past-reports-section');
+    if (pastSection) pastSection.classList.add('hidden');
 }
 
 function showPricingOnly() {
