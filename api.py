@@ -1315,7 +1315,7 @@ async def email_report(request: Request, x_fingerprint: Optional[str] = Header(N
                 "Content-Type": "application/json",
             },
             json={
-                "from": "Condition Report <reports@condition-report.com>",
+                "from": "Condition Report <reports@dataweaveai.com>",
                 "to": [email],
                 "subject": f"Property Condition Report — {address}",
                 "html": f"""
@@ -1780,7 +1780,7 @@ async def send_test_reports(request: Request):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "from": "Condition Report <reports@condition-report.com>",
+                    "from": "Condition Report <reports@dataweaveai.com>",
                     "to": [email],
                     "subject": f"[{i+1}/5 {condition}] Condition Report — {address}",
                     "html": f"""
@@ -1816,6 +1816,9 @@ async def send_test_reports(request: Request):
             results.append({"address": address, "condition": condition, "error": res.text})
         else:
             results.append({"address": address, "condition": condition, "sent": True})
+
+        # Delay to respect Resend rate limit (2 req/sec)
+        await asyncio.sleep(1)
 
     return {"results": results, "total": len(results)}
 
