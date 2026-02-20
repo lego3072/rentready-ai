@@ -1137,6 +1137,57 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
     return {"checkout_url": session.url}
 
 
+# --- Share link for texting/sharing ---
+share_tokens = {}  # token -> {report_id, fingerprint, expires}
+
+@app.post("/api/report/{report_id}/share")
+async def create_share_link(report_id: str, request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Generate a shareable link for the report PDF (valid 7 days)."""
+    fp = get_fingerprint(request, x_fingerprint)
+    report = get_report_from_db(report_id) or reports_db.get(report_id)
+
+    if not report:
+        raise HTTPException(404, "Report not found")
+    if report["fingerprint"] != fp:
+        raise HTTPException(403, "Not your report")
+
+    # Generate token
+    token = secrets.token_urlsafe(16)
+    share_tokens[token] = {
+        "report_id": report_id,
+        "fingerprint": fp,
+        "expires": time.time() + (7 * 24 * 3600),  # 7 days
+    }
+    share_url = f"{BASE_URL}/share/{token}"
+    return {"share_url": share_url, "expires_in": "7 days"}
+
+
+@app.get("/share/{token}")
+async def download_shared_report(token: str):
+    """Download a shared report PDF via token (no auth needed)."""
+    share = share_tokens.get(token)
+    if not share:
+        return HTMLResponse("<h2>Link expired or invalid.</h2><p><a href='/'>Go to Condition Report</a></p>", status_code=404)
+    if time.time() > share["expires"]:
+        del share_tokens[token]
+        return HTMLResponse("<h2>This link has expired.</h2><p><a href='/'>Generate a new report</a></p>", status_code=410)
+
+    report_id = share["report_id"]
+    report = get_report_from_db(report_id) or reports_db.get(report_id)
+    if not report:
+        return HTMLResponse("<h2>Report not found.</h2>", status_code=404)
+
+    pdf_path = report.get("pdf_path")
+    if not pdf_path or not os.path.exists(pdf_path):
+        return HTMLResponse("<h2>PDF not found.</h2>", status_code=404)
+
+    address = report.get("property_info", {}).get("address", "property")
+    safe_address = "".join(c for c in address if c.isalnum() or c in " -_").strip().replace(" ", "_") or "report"
+    filename = f"Condition_Report_{safe_address}.pdf"
+
+    return FileResponse(pdf_path, media_type="application/pdf", filename=filename)
+
+
 @app.post("/api/checkout/pro")
 async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create Stripe checkout for Pro subscription."""
