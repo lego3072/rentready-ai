@@ -1091,7 +1091,7 @@ function renderRooms() {
         const photoCount = room.photos.length;
         const uploadClass = photoCount > 0 ? 'photo-upload-area has-photos' : 'photo-upload-area';
         const uploadText = photoCount > 0
-            ? `${photoCount} photo${photoCount > 1 ? 's' : ''} added`
+            ? (photoCount >= 3 ? '3 photos added (max)' : `${photoCount} photo${photoCount > 1 ? 's' : ''} — tap to add more`)
             : 'Tap to take or upload photos';
 
         list.innerHTML += `
@@ -1103,7 +1103,7 @@ function renderRooms() {
                     ${rooms.length > 1 ? `<button class="remove-room" onclick="removeRoom('${room.id}')">Remove</button>` : ''}
                 </div>
                 <div class="${uploadClass}" onclick="document.getElementById('file_${room.id}').click()">
-                    <div class="photo-upload-icon">${photoCount > 0 ? '✓' : '📷'}</div>
+                    <div class="photo-upload-icon">${photoCount >= 3 ? '✓' : photoCount > 0 ? '➕' : '📷'}</div>
                     <div class="photo-upload-text">${uploadText}</div>
                     <div class="photo-upload-hint">JPG, PNG — up to 3 photos per room</div>
                 </div>
