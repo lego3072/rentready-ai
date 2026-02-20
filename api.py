@@ -374,9 +374,9 @@ def check_access(user: dict) -> dict:
     if user["is_pro"]:
         return {"allowed": True, "reason": "pro"}
 
-    # Free trial: 1 report (3 rooms max)
+    # Free trial: 1 report (4 rooms max)
     if user["reports_used"] == 0:
-        return {"allowed": True, "reason": "free_trial", "max_rooms": 3}
+        return {"allowed": True, "reason": "free_trial", "max_rooms": 4}
 
     # Purchased single reports
     reports_remaining = user["single_reports_purchased"] - (user["reports_used"] - 1)  # -1 for free trial

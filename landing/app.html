@@ -891,7 +891,7 @@ function goToStep2() {
     // Show trial badge if first report
     if (userStatus && userStatus.reports_used === 0) {
         document.getElementById('trial-badge-container').innerHTML =
-            '<div class="trial-badge">Free trial: 1 report, up to 3 rooms. No signup needed.</div>';
+            '<div class="trial-badge">Free trial: 1 report, up to 4 rooms. No signup needed.</div>';
     }
 
     showStep(2);
@@ -920,9 +920,9 @@ function addDefaultRooms() {
 }
 
 function addRoom(name) {
-    // Free trial limit
-    if (userStatus && userStatus.reports_used === 0 && rooms.length >= 3) {
-        alert('Free trial is limited to 3 rooms. Upgrade to add more.');
+    // Free trial limit: 4 rooms max
+    if (userStatus && userStatus.reports_used === 0 && rooms.length >= 4) {
+        alert('Free trial is limited to 4 rooms. Upgrade to add more.');
         return;
     }
 
