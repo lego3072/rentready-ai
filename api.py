@@ -249,7 +249,19 @@ reports_db: dict = {}
 app = FastAPI(title="Condition Report", version="1.0.0")
 
 # --- Rate Limiter ---
-limiter = Limiter(key_func=get_remote_address)
+def get_real_ip(request: Request) -> str:
+    """Get real client IP behind Cloudflare/proxy."""
+    # Cloudflare sets CF-Connecting-IP
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip
+    # Fallback to X-Forwarded-For
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=get_real_ip)
 app.state.limiter = limiter
 
 
