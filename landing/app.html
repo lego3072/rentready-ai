@@ -781,8 +781,37 @@
         <input type="email" class="auth-input" id="auth-email" placeholder="Email address" inputmode="email" autocomplete="email">
         <input type="password" class="auth-input" id="auth-password" placeholder="Password (6+ characters)" autocomplete="new-password">
         <button class="btn-primary" id="auth-submit-btn" onclick="submitAuth()">Create Account</button>
+        <div id="forgot-password-link" style="text-align:right;margin-top:-4px;margin-bottom:12px;display:none;">
+            <a onclick="showForgotPassword()" style="color:#2563eb;font-size:13px;cursor:pointer;text-decoration:none;">Forgot password?</a>
+        </div>
         <div class="auth-toggle" id="auth-toggle">
             Already have an account? <a onclick="toggleAuthMode()">Log in</a>
+        </div>
+    </div>
+</div>
+
+<!-- Password Reset Modal -->
+<div id="reset-modal" class="auth-overlay hidden" onclick="if(event.target===this)closeResetModal()">
+    <div class="auth-modal">
+        <div id="reset-request-view">
+            <h3>Reset Password</h3>
+            <p>Enter your email and we'll send you a reset link.</p>
+            <div id="reset-error" class="auth-error"></div>
+            <div id="reset-success" style="color:#16a34a;font-size:13px;margin-bottom:10px;display:none;"></div>
+            <input type="email" class="auth-input" id="reset-email" placeholder="Email address" inputmode="email" autocomplete="email">
+            <button class="btn-primary" id="reset-request-btn" onclick="requestPasswordReset()">Send Reset Link</button>
+            <div class="auth-toggle" style="margin-top:14px;">
+                <a onclick="closeResetModal();openAuthModal();" style="color:#2563eb;font-weight:600;cursor:pointer;text-decoration:none;">Back to login</a>
+            </div>
+        </div>
+        <div id="reset-execute-view" style="display:none;">
+            <h3>Set New Password</h3>
+            <p>Enter your new password below.</p>
+            <div id="reset-exec-error" class="auth-error"></div>
+            <div id="reset-exec-success" style="color:#16a34a;font-size:13px;margin-bottom:10px;display:none;"></div>
+            <input type="password" class="auth-input" id="reset-new-password" placeholder="New password (6+ characters)" autocomplete="new-password">
+            <input type="password" class="auth-input" id="reset-confirm-password" placeholder="Confirm new password" autocomplete="new-password">
+            <button class="btn-primary" id="reset-execute-btn" onclick="executePasswordReset()">Reset Password</button>
         </div>
     </div>
 </div>
@@ -1062,6 +1091,14 @@ async function init() {
     } else if (params.get('payment') === 'cancelled') {
         window.history.replaceState({}, '', '/');
         showToast('Payment was cancelled.', 'info');
+    }
+
+    // Check for password reset token
+    const resetToken = params.get('reset_token');
+    if (resetToken) {
+        window.history.replaceState({}, '', '/');
+        // Wait a tick for DOM to be ready, then show reset form
+        setTimeout(() => showResetForm(resetToken), 100);
     }
 
     await loadUserStatus();
@@ -1883,6 +1920,7 @@ function updateAuthUI() {
         ? 'Already have an account? <a onclick="toggleAuthMode()">Log in</a>'
         : "Don't have an account? <a onclick=\"toggleAuthMode()\">Sign up</a>";
     document.getElementById('auth-password').autocomplete = isSignup ? 'new-password' : 'current-password';
+    document.getElementById('forgot-password-link').style.display = isSignup ? 'none' : 'block';
 }
 
 async function submitAuth() {
@@ -1962,10 +2000,14 @@ async function openProfileModal() {
         const planLabel = data.plan === 'pro' ? 'Pro' : 'Free';
         const planClass = data.plan === 'pro' ? 'pro' : 'free';
 
+        const verifiedBadge = data.email_verified
+            ? '<span style="color:#16a34a;font-size:12px;margin-left:6px;">✓ Verified</span>'
+            : '<span style="font-size:12px;margin-left:6px;"><a id="resend-verify-btn" onclick="resendVerification()" style="color:#2563eb;cursor:pointer;text-decoration:none;">Verify email</a></span>';
+
         content.innerHTML = `
             <div class="profile-row">
                 <span class="profile-label">Email</span>
-                <span class="profile-value">${data.email}</span>
+                <span class="profile-value">${data.email}${verifiedBadge}</span>
             </div>
             <div class="profile-row">
                 <span class="profile-label">Name</span>
@@ -2049,6 +2091,155 @@ async function checkAccountOnLoad() {
             }
         } catch (e) {
             // Silently fail — just use cached data
+        }
+    }
+}
+
+// --- Password Reset ---
+let pendingResetToken = null;
+
+function showForgotPassword() {
+    closeAuthModal();
+    document.getElementById('reset-modal').classList.remove('hidden');
+    document.getElementById('reset-request-view').style.display = 'block';
+    document.getElementById('reset-execute-view').style.display = 'none';
+    document.getElementById('reset-error').style.display = 'none';
+    document.getElementById('reset-success').style.display = 'none';
+    document.getElementById('reset-email').value = '';
+    setTimeout(() => document.getElementById('reset-email').focus(), 300);
+}
+
+function showResetForm(token) {
+    pendingResetToken = token;
+    document.getElementById('reset-modal').classList.remove('hidden');
+    document.getElementById('reset-request-view').style.display = 'none';
+    document.getElementById('reset-execute-view').style.display = 'block';
+    document.getElementById('reset-exec-error').style.display = 'none';
+    document.getElementById('reset-exec-success').style.display = 'none';
+    document.getElementById('reset-new-password').value = '';
+    document.getElementById('reset-confirm-password').value = '';
+    setTimeout(() => document.getElementById('reset-new-password').focus(), 300);
+}
+
+function closeResetModal() {
+    document.getElementById('reset-modal').classList.add('hidden');
+    pendingResetToken = null;
+}
+
+async function requestPasswordReset() {
+    const email = document.getElementById('reset-email').value.trim();
+    const errEl = document.getElementById('reset-error');
+    const successEl = document.getElementById('reset-success');
+    errEl.style.display = 'none';
+    successEl.style.display = 'none';
+
+    if (!email || !email.includes('@')) {
+        errEl.textContent = 'Enter a valid email address';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    const btn = document.getElementById('reset-request-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    try {
+        const res = await fetch('/api/account/request-reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        successEl.textContent = 'If an account exists with that email, a reset link has been sent. Check your inbox.';
+        successEl.style.display = 'block';
+    } catch (err) {
+        errEl.textContent = 'Something went wrong. Try again.';
+        errEl.style.display = 'block';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Send Reset Link';
+}
+
+async function executePasswordReset() {
+    const password = document.getElementById('reset-new-password').value;
+    const confirm = document.getElementById('reset-confirm-password').value;
+    const errEl = document.getElementById('reset-exec-error');
+    const successEl = document.getElementById('reset-exec-success');
+    errEl.style.display = 'none';
+    successEl.style.display = 'none';
+
+    if (password.length < 6) {
+        errEl.textContent = 'Password must be at least 6 characters';
+        errEl.style.display = 'block';
+        return;
+    }
+    if (password !== confirm) {
+        errEl.textContent = 'Passwords do not match';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    const btn = document.getElementById('reset-execute-btn');
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+
+    try {
+        const res = await fetch('/api/account/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: pendingResetToken, new_password: password }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Reset failed');
+        }
+        successEl.textContent = 'Password reset! You can now log in.';
+        successEl.style.display = 'block';
+        btn.style.display = 'none';
+        document.getElementById('reset-new-password').style.display = 'none';
+        document.getElementById('reset-confirm-password').style.display = 'none';
+        setTimeout(() => {
+            closeResetModal();
+            openAuthModal();
+            authMode = 'login';
+            updateAuthUI();
+        }, 2000);
+    } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Reset Password';
+}
+
+// --- Email Verification ---
+async function resendVerification() {
+    if (!accountData || !accountData.email) return;
+    const btn = document.getElementById('resend-verify-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+    }
+    try {
+        const res = await fetch('/api/account/resend-verification', {
+            method: 'POST',
+            headers: apiHeaders(),
+        });
+        if (btn) {
+            btn.textContent = 'Sent! Check inbox';
+            btn.style.color = '#16a34a';
+            setTimeout(() => {
+                btn.textContent = 'Resend';
+                btn.style.color = '';
+                btn.disabled = false;
+            }, 5000);
+        }
+    } catch (err) {
+        if (btn) {
+            btn.textContent = 'Failed — try again';
+            btn.disabled = false;
         }
     }
 }

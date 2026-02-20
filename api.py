@@ -195,6 +195,32 @@ try:
                     )
                 """)
 
+                # Email verification tokens
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                        token VARCHAR(255) PRIMARY KEY,
+                        email VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP NOT NULL
+                    )
+                """)
+
+                # Password reset tokens
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                        token VARCHAR(255) PRIMARY KEY,
+                        email VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP NOT NULL,
+                        used BOOLEAN DEFAULT FALSE
+                    )
+                """)
+
+                # Add email_verified column to accounts (safe to run multiple times)
+                cur.execute("""
+                    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE
+                """)
+
                 conn.commit()
                 cur.close()
                 logger.info("Database tables initialized successfully")
@@ -498,6 +524,30 @@ def mark_session_processed(session_id: str, fingerprint: str, purchase_type: str
         return False
     _processed_sessions_mem.add(session_id)
     return True
+
+
+async def send_transactional_email(to_email: str, subject: str, html_body: str):
+    """Send a transactional email via Resend API."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set — skipping email send")
+        return False
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "from": "Condition Report <reports@condition-report.com>",
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_body,
+                },
+                timeout=10,
+            )
+            return resp.status_code == 200
+    except Exception as e:
+        logger.error(f"Email send error: {e}")
+        return False
 
 
 def check_access(user: dict) -> dict:
@@ -1750,6 +1800,40 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
             conn.commit()
             cur.close()
 
+            # Send verification email (non-blocking — don't fail signup if email fails)
+            verify_token = secrets.token_urlsafe(32)
+            try:
+                conn2 = get_db_connection()
+                cur2 = conn2.cursor()
+                cur2.execute(
+                    "INSERT INTO email_verification_tokens (token, email, expires_at) VALUES (%s, %s, %s)",
+                    (verify_token, email, datetime.now(timezone.utc) + timedelta(hours=24)),
+                )
+                conn2.commit()
+                cur2.close()
+                release_db_connection(conn2)
+            except Exception as e:
+                logger.error(f"Verification token save error: {e}")
+
+            verify_url = f"{BASE_URL}/api/account/verify-email?token={verify_token}"
+            asyncio.create_task(send_transactional_email(
+                email,
+                "Verify your email — Condition Report",
+                f"""<div style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:20px;">
+                    <div style="text-align:center;padding:16px 0;border-bottom:3px solid #2563eb;">
+                        <span style="font-size:22px;font-weight:800;color:#1a1a2e;">Condition</span><span style="font-size:22px;font-weight:800;color:#2563eb;">Report</span>
+                    </div>
+                    <div style="padding:24px 0;">
+                        <h2 style="margin:0 0 12px;font-size:18px;color:#1a1a2e;">Verify your email</h2>
+                        <p style="color:#555;font-size:14px;line-height:1.5;">Click the button below to verify your email address. This link expires in 24 hours.</p>
+                        <div style="text-align:center;padding:20px 0;">
+                            <a href="{verify_url}" style="display:inline-block;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Verify Email</a>
+                        </div>
+                        <p style="color:#999;font-size:12px;">If you didn't create an account, you can ignore this email.</p>
+                    </div>
+                </div>""",
+            ))
+
             return {"success": True, "email": email, "plan": plan, "name": name}
         except HTTPException:
             raise
@@ -1876,7 +1960,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
 
             # Find account linked to this fingerprint (direct match first, then session table)
             cur.execute("""
-                SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id
+                SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id, a.email_verified
                 FROM accounts a WHERE a.fingerprint = %s
             """, (fp,))
             account = cur.fetchone()
@@ -1884,7 +1968,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
             if not account:
                 # Multi-device fallback: check session table
                 cur.execute("""
-                    SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id
+                    SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id, a.email_verified
                     FROM account_sessions s
                     JOIN accounts a ON a.email = s.email
                     WHERE s.fingerprint = %s
@@ -1920,6 +2004,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
                 "single_reports_purchased": user_data["single_reports_purchased"] if user_data else 0,
                 "member_since": account["created_at"].strftime("%B %Y") if account["created_at"] else "",
                 "has_subscription": account["plan"] in ("pro",),
+                "email_verified": bool(account.get("email_verified", False)),
             }
         except Exception as e:
             logger.error(f"Profile error: {e}")
@@ -1956,6 +2041,281 @@ async def account_update(request: Request, x_fingerprint: Optional[str] = Header
                 release_db_connection(conn)
 
     raise HTTPException(503, "Database not available")
+
+
+# --- Email Verification ---
+
+@app.get("/api/account/verify-email")
+async def verify_email(token: str = ""):
+    """Verify email address via token link."""
+    if not token:
+        return HTMLResponse("<h2>Invalid verification link</h2>", status_code=400)
+
+    if not POSTGRES_AVAILABLE:
+        return HTMLResponse("<h2>Service unavailable</h2>", status_code=503)
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT email, expires_at FROM email_verification_tokens WHERE token = %s", (token,))
+        row = cur.fetchone()
+
+        if not row:
+            return HTMLResponse("""<div style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;">
+                <h2 style="color:#dc2626;">Invalid or expired link</h2>
+                <p>This verification link is no longer valid.</p>
+                <a href="/" style="color:#2563eb;">Go to Condition Report</a>
+            </div>""", status_code=400)
+
+        if row["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            cur.execute("DELETE FROM email_verification_tokens WHERE token = %s", (token,))
+            conn.commit()
+            return HTMLResponse("""<div style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;">
+                <h2 style="color:#dc2626;">Link expired</h2>
+                <p>This verification link has expired. Please log in and request a new one.</p>
+                <a href="/" style="color:#2563eb;">Go to Condition Report</a>
+            </div>""", status_code=400)
+
+        email = row["email"]
+        cur.execute("UPDATE accounts SET email_verified = TRUE, updated_at = CURRENT_TIMESTAMP WHERE email = %s", (email,))
+        cur.execute("DELETE FROM email_verification_tokens WHERE email = %s", (email,))
+        conn.commit()
+        cur.close()
+
+        return HTMLResponse(f"""<div style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;">
+            <div style="font-size:48px;margin-bottom:16px;">✅</div>
+            <h2 style="color:#16a34a;">Email verified!</h2>
+            <p style="color:#555;">Your email <strong>{email}</strong> is now verified.</p>
+            <a href="/" style="display:inline-block;margin-top:20px;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Go to Condition Report</a>
+        </div>""")
+    except Exception as e:
+        logger.error(f"Email verify error: {e}")
+        return HTMLResponse("<h2>Verification failed</h2>", status_code=500)
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+@app.post("/api/account/resend-verification")
+@limiter.limit("3/minute")
+async def resend_verification(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Resend verification email for logged-in user."""
+    fp = get_fingerprint(request, x_fingerprint)
+
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(503, "Database not available")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT email, email_verified FROM accounts WHERE fingerprint = %s", (fp,))
+        account = cur.fetchone()
+        if not account:
+            # Multi-device fallback: check session table
+            cur.execute("""
+                SELECT a.email, a.email_verified FROM account_sessions s
+                JOIN accounts a ON a.email = s.email
+                WHERE s.fingerprint = %s ORDER BY s.created_at DESC LIMIT 1
+            """, (fp,))
+            account = cur.fetchone()
+        if not account:
+            raise HTTPException(404, "Account not found")
+        if account.get("email_verified"):
+            return {"success": True, "message": "Email already verified"}
+
+        email = account["email"]
+
+        # Delete old tokens for this email
+        cur.execute("DELETE FROM email_verification_tokens WHERE email = %s", (email,))
+
+        verify_token = secrets.token_urlsafe(32)
+        cur.execute(
+            "INSERT INTO email_verification_tokens (token, email, expires_at) VALUES (%s, %s, %s)",
+            (verify_token, email, datetime.now(timezone.utc) + timedelta(hours=24)),
+        )
+        conn.commit()
+        cur.close()
+
+        verify_url = f"{BASE_URL}/api/account/verify-email?token={verify_token}"
+        await send_transactional_email(
+            email,
+            "Verify your email — Condition Report",
+            f"""<div style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:20px;">
+                <div style="text-align:center;padding:16px 0;border-bottom:3px solid #2563eb;">
+                    <span style="font-size:22px;font-weight:800;color:#1a1a2e;">Condition</span><span style="font-size:22px;font-weight:800;color:#2563eb;">Report</span>
+                </div>
+                <div style="padding:24px 0;">
+                    <h2 style="margin:0 0 12px;font-size:18px;color:#1a1a2e;">Verify your email</h2>
+                    <p style="color:#555;font-size:14px;line-height:1.5;">Click the button below to verify your email address. This link expires in 24 hours.</p>
+                    <div style="text-align:center;padding:20px 0;">
+                        <a href="{verify_url}" style="display:inline-block;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Verify Email</a>
+                    </div>
+                </div>
+            </div>""",
+        )
+
+        return {"success": True, "message": "Verification email sent"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Resend verification error: {e}")
+        raise HTTPException(500, "Failed to send verification email")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# --- Password Reset ---
+
+@app.post("/api/account/request-reset")
+@limiter.limit("3/minute")
+async def request_password_reset(request: Request):
+    """Send password reset email. Always returns success (no email enumeration)."""
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+
+    if not email or "@" not in email:
+        return {"success": True, "message": "If an account exists, a reset link has been sent."}
+
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(503, "Database not available")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT id FROM accounts WHERE email = %s", (email,))
+        account = cur.fetchone()
+
+        if account:
+            # Delete old reset tokens for this email
+            cur.execute("DELETE FROM password_reset_tokens WHERE email = %s", (email,))
+
+            reset_token = secrets.token_urlsafe(32)
+            cur.execute(
+                "INSERT INTO password_reset_tokens (token, email, expires_at) VALUES (%s, %s, %s)",
+                (reset_token, email, datetime.now(timezone.utc) + timedelta(hours=1)),
+            )
+            conn.commit()
+
+            reset_url = f"{BASE_URL}?reset_token={reset_token}"
+            await send_transactional_email(
+                email,
+                "Reset your password — Condition Report",
+                f"""<div style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:20px;">
+                    <div style="text-align:center;padding:16px 0;border-bottom:3px solid #2563eb;">
+                        <span style="font-size:22px;font-weight:800;color:#1a1a2e;">Condition</span><span style="font-size:22px;font-weight:800;color:#2563eb;">Report</span>
+                    </div>
+                    <div style="padding:24px 0;">
+                        <h2 style="margin:0 0 12px;font-size:18px;color:#1a1a2e;">Reset your password</h2>
+                        <p style="color:#555;font-size:14px;line-height:1.5;">Click the button below to reset your password. This link expires in 1 hour.</p>
+                        <div style="text-align:center;padding:20px 0;">
+                            <a href="{reset_url}" style="display:inline-block;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Reset Password</a>
+                        </div>
+                        <p style="color:#999;font-size:12px;">If you didn't request this, you can ignore this email.</p>
+                    </div>
+                </div>""",
+            )
+
+        cur.close()
+    except Exception as e:
+        logger.error(f"Password reset request error: {e}")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+    # Always return success (prevent email enumeration)
+    return {"success": True, "message": "If an account exists, a reset link has been sent."}
+
+
+@app.post("/api/account/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request):
+    """Reset password using token from email."""
+    body = await request.json()
+    token = body.get("token", "")
+    new_password = body.get("password", "")
+
+    if not token:
+        raise HTTPException(400, "Reset token required")
+    if len(new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(503, "Database not available")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT email, expires_at, used FROM password_reset_tokens WHERE token = %s", (token,))
+        row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(400, "Invalid or expired reset link")
+        if row["used"]:
+            raise HTTPException(400, "This reset link has already been used")
+        if row["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            raise HTTPException(400, "This reset link has expired. Please request a new one.")
+
+        email = row["email"]
+        pw_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+
+        cur.execute("UPDATE accounts SET password_hash = %s, updated_at = CURRENT_TIMESTAMP WHERE email = %s", (pw_hash, email))
+        cur.execute("UPDATE password_reset_tokens SET used = TRUE WHERE token = %s", (token,))
+        # Invalidate all other reset tokens for this email
+        cur.execute("DELETE FROM password_reset_tokens WHERE email = %s AND token != %s", (email, token))
+        conn.commit()
+        cur.close()
+
+        return {"success": True, "message": "Password updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password reset error: {e}")
+        raise HTTPException(500, "Password reset failed")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# --- File Cleanup ---
+
+async def cleanup_old_files():
+    """Delete uploaded photos and generated PDFs older than 24 hours."""
+    cutoff = time.time() - 86400  # 24 hours
+    cleaned = 0
+    for directory in [UPLOAD_DIR, REPORT_DIR]:
+        if not directory.exists():
+            continue
+        for f in directory.iterdir():
+            if f.is_file() and f.stat().st_mtime < cutoff:
+                try:
+                    f.unlink()
+                    cleaned += 1
+                except Exception:
+                    pass
+    if cleaned > 0:
+        logger.info(f"File cleanup: deleted {cleaned} files older than 24h")
+
+
+@app.on_event("startup")
+async def startup_cleanup():
+    """Run file cleanup on startup, then schedule periodic cleanup."""
+    await cleanup_old_files()
+
+    async def periodic_cleanup():
+        while True:
+            await asyncio.sleep(3600)  # Every hour
+            await cleanup_old_files()
+
+    asyncio.create_task(periodic_cleanup())
 
 
 # Mount static files
