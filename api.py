@@ -11,6 +11,8 @@ import json
 import base64
 import hashlib
 import time
+import logging
+import secrets
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -41,6 +43,8 @@ from reportlab.platypus import (
 
 load_dotenv()
 
+logger = logging.getLogger("condition-report")
+
 # --- Config ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
@@ -59,10 +63,95 @@ REPORT_DIR = Path("reports")
 UPLOAD_DIR.mkdir(exist_ok=True)
 REPORT_DIR.mkdir(exist_ok=True)
 
-# --- In-memory storage (swap for DB later) ---
-# fingerprint -> {reports_used: int, is_pro: bool, stripe_customer_id: str, reports: [...]}
+# --- PostgreSQL Database ---
+try:
+    import psycopg2
+    from psycopg2.extras import Json, RealDictCursor
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    POSTGRES_AVAILABLE = bool(DATABASE_URL)
+
+    if POSTGRES_AVAILABLE:
+        def get_db_connection():
+            return psycopg2.connect(DATABASE_URL)
+
+        def init_database():
+            conn = None
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+
+                # Users table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        fingerprint VARCHAR(255),
+                        email VARCHAR(255),
+                        plan VARCHAR(32) DEFAULT 'free',
+                        reports_used INTEGER DEFAULT 0,
+                        single_reports_purchased INTEGER DEFAULT 0,
+                        stripe_customer_id VARCHAR(255),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(fingerprint)
+                    )
+                """)
+
+                # Email index for login lookups
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
+                    WHERE email IS NOT NULL
+                """)
+
+                # Reports table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS reports (
+                        id VARCHAR(255) PRIMARY KEY,
+                        fingerprint VARCHAR(255) NOT NULL,
+                        email VARCHAR(255),
+                        report_type VARCHAR(64),
+                        property_info JSONB DEFAULT '{}',
+                        rooms JSONB DEFAULT '[]',
+                        pdf_path VARCHAR(512),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_reports_fingerprint ON reports(fingerprint)
+                """)
+
+                # Accounts table (email/password auth)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS accounts (
+                        id SERIAL PRIMARY KEY,
+                        email VARCHAR(255) NOT NULL UNIQUE,
+                        password_hash VARCHAR(255) NOT NULL,
+                        name VARCHAR(255),
+                        company VARCHAR(255),
+                        plan VARCHAR(32) DEFAULT 'free',
+                        stripe_customer_id VARCHAR(255),
+                        fingerprint VARCHAR(255),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                conn.commit()
+                cur.close()
+                logger.info("Database tables initialized successfully")
+            except Exception as e:
+                logger.error(f"Database initialization error: {e}")
+            finally:
+                if conn:
+                    conn.close()
+
+        init_database()
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    logger.warning("psycopg2 not available - using in-memory storage")
+
+# --- In-memory fallback ---
 users_db: dict = {}
-# report_id -> report data
 reports_db: dict = {}
 
 app = FastAPI(title="Condition Report", version="1.0.0")
@@ -87,18 +176,196 @@ def get_fingerprint(request: Request, x_fingerprint: Optional[str] = None) -> st
 
 
 def get_user(fingerprint: str) -> dict:
-    """Get or create user record."""
+    """Get or create user record from DB (with in-memory fallback)."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            cur.execute("SELECT * FROM users WHERE fingerprint = %s", (fingerprint,))
+            row = cur.fetchone()
+
+            if not row:
+                cur.execute("""
+                    INSERT INTO users (fingerprint, plan, reports_used, single_reports_purchased)
+                    VALUES (%s, 'free', 0, 0)
+                    ON CONFLICT (fingerprint) DO NOTHING
+                    RETURNING *
+                """, (fingerprint,))
+                conn.commit()
+                row = cur.fetchone()
+                if not row:
+                    cur.execute("SELECT * FROM users WHERE fingerprint = %s", (fingerprint,))
+                    row = cur.fetchone()
+
+            cur.close()
+            return {
+                "fingerprint": row["fingerprint"],
+                "email": row.get("email"),
+                "reports_used": row["reports_used"],
+                "is_pro": row["plan"] == "pro",
+                "plan": row["plan"],
+                "stripe_customer_id": row.get("stripe_customer_id"),
+                "single_reports_purchased": row["single_reports_purchased"],
+                "created_at": str(row["created_at"]),
+            }
+        except Exception as e:
+            logger.error(f"DB get_user error: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    # Fallback to in-memory
     if fingerprint not in users_db:
         users_db[fingerprint] = {
             "fingerprint": fingerprint,
+            "email": None,
             "reports_used": 0,
             "is_pro": False,
+            "plan": "free",
             "stripe_customer_id": None,
             "single_reports_purchased": 0,
             "reports": [],
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
     return users_db[fingerprint]
+
+
+def get_user_reports(fingerprint: str) -> list:
+    """Get user's reports from DB."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("""
+                SELECT id, report_type, property_info, pdf_path, created_at
+                FROM reports WHERE fingerprint = %s
+                ORDER BY created_at DESC LIMIT 50
+            """, (fingerprint,))
+            rows = cur.fetchall()
+            cur.close()
+            return [{
+                "id": r["id"],
+                "date": r["created_at"].strftime("%B %d, %Y") if r["created_at"] else "",
+                "address": (r["property_info"] or {}).get("address", ""),
+                "report_type": r["report_type"],
+            } for r in rows]
+        except Exception as e:
+            logger.error(f"DB get_user_reports error: {e}")
+        finally:
+            if conn:
+                conn.close()
+    return []
+
+
+def save_report_to_db(report_data: dict, fingerprint: str):
+    """Save report to PostgreSQL."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO reports (id, fingerprint, report_type, property_info, rooms, pdf_path)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+            """, (
+                report_data["id"],
+                fingerprint,
+                report_data.get("report_type"),
+                Json(report_data.get("property_info", {})),
+                Json(report_data.get("rooms", [])),
+                report_data.get("pdf_path"),
+            ))
+            # Increment reports_used
+            cur.execute("""
+                UPDATE users SET reports_used = reports_used + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE fingerprint = %s
+            """, (fingerprint,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.error(f"DB save_report error: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+
+def get_report_from_db(report_id: str) -> dict | None:
+    """Get report from DB."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("SELECT * FROM reports WHERE id = %s", (report_id,))
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                return {
+                    "id": row["id"],
+                    "fingerprint": row["fingerprint"],
+                    "date": row["created_at"].strftime("%B %d, %Y") if row["created_at"] else "",
+                    "report_type": row["report_type"],
+                    "property_info": row["property_info"] or {},
+                    "rooms": row["rooms"] or [],
+                    "pdf_path": row["pdf_path"],
+                }
+            return None
+        except Exception as e:
+            logger.error(f"DB get_report error: {e}")
+        finally:
+            if conn:
+                conn.close()
+    return None
+
+
+def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None):
+    """Update user plan in DB."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            if stripe_customer_id:
+                cur.execute("""
+                    UPDATE users SET plan = %s, stripe_customer_id = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE fingerprint = %s
+                """, (plan, stripe_customer_id, fingerprint))
+            else:
+                cur.execute("""
+                    UPDATE users SET plan = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE fingerprint = %s
+                """, (plan, fingerprint))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.error(f"DB update_user_plan error: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+
+def add_single_report_purchase(fingerprint: str):
+    """Increment single_reports_purchased in DB."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE users SET single_reports_purchased = single_reports_purchased + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE fingerprint = %s
+            """, (fingerprint,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.error(f"DB add_single_report error: {e}")
+        finally:
+            if conn:
+                conn.close()
 
 
 def check_access(user: dict) -> dict:
@@ -399,13 +666,16 @@ async def user_status(request: Request, x_fingerprint: Optional[str] = Header(No
     fp = get_fingerprint(request, x_fingerprint)
     user = get_user(fp)
     access = check_access(user)
+    reports = get_user_reports(fp)
     return {
         "fingerprint": fp,
+        "email": user.get("email"),
         "reports_used": user["reports_used"],
         "is_pro": user["is_pro"],
+        "plan": user.get("plan", "free"),
         "single_reports_purchased": user["single_reports_purchased"],
         "access": access,
-        "reports": [{"id": r["id"], "date": r["date"], "address": r.get("property_info", {}).get("address", "")} for r in user["reports"]],
+        "reports": reports,
     }
 
 
@@ -539,8 +809,10 @@ async def analyze_report(
 
     # Store report
     reports_db[report_id] = report_data
-    user["reports"].append(report_data)
-    user["reports_used"] += 1
+    save_report_to_db(report_data, fp)
+    if not POSTGRES_AVAILABLE:
+        user["reports"].append(report_data)
+        user["reports_used"] += 1
 
     return {
         "report_id": report_id,
@@ -562,7 +834,9 @@ async def download_report_pdf(
     """Download the generated PDF report."""
     # Accept fingerprint from query param (browser GET) or header
     fingerprint = fp or get_fingerprint(request, x_fingerprint)
-    report = reports_db.get(report_id)
+
+    # Try DB first, then in-memory
+    report = get_report_from_db(report_id) or reports_db.get(report_id)
 
     if not report:
         raise HTTPException(404, "Report not found")
@@ -590,19 +864,20 @@ async def download_report_pdf(
 async def get_report(report_id: str, request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Get report data (without PDF)."""
     fp = get_fingerprint(request, x_fingerprint)
-    report = reports_db.get(report_id)
+    report = get_report_from_db(report_id) or reports_db.get(report_id)
 
     if not report:
         raise HTTPException(404, "Report not found")
     if report["fingerprint"] != fp:
         raise HTTPException(403, "Not your report")
 
+    rooms = report.get("rooms", [])
     return {
         "id": report["id"],
-        "date": report["date"],
-        "report_type": report["report_type"],
-        "property_info": report["property_info"],
-        "rooms": [{"name": r["name"], "description": r["description"], "photo_count": r.get("photo_count", 0)} for r in report.get("rooms", [])],
+        "date": report.get("date", ""),
+        "report_type": report.get("report_type", ""),
+        "property_info": report.get("property_info", {}),
+        "rooms": [{"name": r.get("name", ""), "description": r.get("description", ""), "photo_count": r.get("photo_count", 0)} for r in rooms],
         "pdf_url": f"/api/report/{report_id}/pdf",
     }
 
@@ -661,7 +936,7 @@ async def email_report(request: Request, x_fingerprint: Optional[str] = Header(N
     if not email or "@" not in email:
         raise HTTPException(400, "Valid email address required")
 
-    report = reports_db.get(report_id)
+    report = get_report_from_db(report_id) or reports_db.get(report_id)
     if not report:
         raise HTTPException(404, "Report not found")
     if report["fingerprint"] != fp:
@@ -735,23 +1010,284 @@ async def stripe_webhook(request: Request):
         fp = session.get("metadata", {}).get("fingerprint", "")
         purchase_type = session.get("metadata", {}).get("type", "")
 
-        if fp and fp in users_db:
-            user = users_db[fp]
+        if fp:
             if purchase_type == "single":
-                user["single_reports_purchased"] += 1
+                add_single_report_purchase(fp)
+                # In-memory fallback
+                if fp in users_db:
+                    users_db[fp]["single_reports_purchased"] += 1
             elif purchase_type == "pro":
-                user["is_pro"] = True
-                user["stripe_customer_id"] = session.get("customer", "")
+                customer_id = session.get("customer", "")
+                update_user_plan(fp, "pro", customer_id)
+                # In-memory fallback
+                if fp in users_db:
+                    users_db[fp]["is_pro"] = True
+                    users_db[fp]["plan"] = "pro"
+                    users_db[fp]["stripe_customer_id"] = customer_id
 
     elif event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
         customer_id = sub.get("customer", "")
-        for fp, user in users_db.items():
+        # DB: find user by stripe_customer_id and downgrade
+        if POSTGRES_AVAILABLE:
+            conn = None
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE users SET plan = 'free', updated_at = CURRENT_TIMESTAMP
+                    WHERE stripe_customer_id = %s
+                """, (customer_id,))
+                conn.commit()
+                cur.close()
+            except Exception as e:
+                logger.error(f"DB subscription cancel error: {e}")
+            finally:
+                if conn:
+                    conn.close()
+        # In-memory fallback
+        for fp_key, user in users_db.items():
             if user.get("stripe_customer_id") == customer_id:
                 user["is_pro"] = False
+                user["plan"] = "free"
                 break
 
     return {"received": True}
+
+
+# --- Account Signup / Login ---
+
+@app.post("/api/account/signup")
+async def account_signup(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Create account with email + password. Links fingerprint to email."""
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password", "")
+    name = body.get("name", "").strip()
+
+    if not email or "@" not in email:
+        raise HTTPException(400, "Valid email required")
+    if len(password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    fp = get_fingerprint(request, x_fingerprint)
+
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Check if email already exists
+            cur.execute("SELECT id FROM accounts WHERE email = %s", (email,))
+            if cur.fetchone():
+                raise HTTPException(409, "An account with this email already exists. Try logging in.")
+
+            # Hash password
+            pw_hash = hashlib.sha256((password + "cr_salt_2026").encode()).hexdigest()
+
+            # Check if this fingerprint has an existing user row (to preserve purchase history)
+            cur.execute("SELECT plan, reports_used, single_reports_purchased, stripe_customer_id FROM users WHERE fingerprint = %s", (fp,))
+            existing_user = cur.fetchone()
+
+            plan = "free"
+            stripe_cid = None
+            if existing_user:
+                plan = existing_user["plan"] or "free"
+                stripe_cid = existing_user.get("stripe_customer_id")
+
+            # Check Stripe for active subscription
+            try:
+                customers = stripe.Customer.list(email=email, limit=1)
+                if customers.data:
+                    subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=1)
+                    if subscriptions.data:
+                        plan = "pro"
+                        stripe_cid = customers.data[0].id
+            except Exception:
+                pass
+
+            # Create account
+            cur.execute("""
+                INSERT INTO accounts (email, password_hash, name, plan, stripe_customer_id, fingerprint)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (email, pw_hash, name, plan, stripe_cid, fp))
+
+            # Link email to user record
+            cur.execute("""
+                UPDATE users SET email = %s, plan = %s, stripe_customer_id = COALESCE(%s, stripe_customer_id), updated_at = CURRENT_TIMESTAMP
+                WHERE fingerprint = %s
+            """, (email, plan, stripe_cid, fp))
+
+            conn.commit()
+            cur.close()
+
+            return {"success": True, "email": email, "plan": plan, "name": name}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Signup error: {e}")
+            raise HTTPException(500, "Signup failed")
+        finally:
+            if conn:
+                conn.close()
+    else:
+        raise HTTPException(503, "Database not available")
+
+
+@app.post("/api/account/login")
+async def account_login(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Login with email + password. Returns account info and links fingerprint."""
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password", "")
+
+    if not email or not password:
+        raise HTTPException(400, "Email and password required")
+
+    fp = get_fingerprint(request, x_fingerprint)
+
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            pw_hash = hashlib.sha256((password + "cr_salt_2026").encode()).hexdigest()
+            cur.execute("SELECT * FROM accounts WHERE email = %s AND password_hash = %s", (email, pw_hash))
+            account = cur.fetchone()
+
+            if not account:
+                raise HTTPException(401, "Invalid email or password")
+
+            plan = account["plan"] or "free"
+
+            # Auto-heal: check Stripe if plan shows free
+            if plan == "free":
+                try:
+                    customers = stripe.Customer.list(email=email, limit=1)
+                    if customers.data:
+                        subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=1)
+                        if subscriptions.data:
+                            plan = "pro"
+                            cur.execute("UPDATE accounts SET plan = 'pro', stripe_customer_id = %s WHERE email = %s",
+                                        (customers.data[0].id, email))
+                except Exception:
+                    pass
+
+            # Link fingerprint to this account's email in users table
+            cur.execute("""
+                INSERT INTO users (fingerprint, email, plan)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (fingerprint) DO UPDATE SET
+                    email = EXCLUDED.email,
+                    plan = GREATEST(users.plan, EXCLUDED.plan),
+                    updated_at = CURRENT_TIMESTAMP
+            """, (fp, email, plan))
+
+            # Also link fingerprint to account
+            cur.execute("UPDATE accounts SET fingerprint = %s, updated_at = CURRENT_TIMESTAMP WHERE email = %s", (fp, email))
+
+            conn.commit()
+            cur.close()
+
+            return {
+                "success": True,
+                "email": email,
+                "name": account.get("name", ""),
+                "plan": plan,
+                "company": account.get("company", ""),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            raise HTTPException(500, "Login failed")
+        finally:
+            if conn:
+                conn.close()
+    else:
+        raise HTTPException(503, "Database not available")
+
+
+@app.get("/api/account/profile")
+async def account_profile(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Get account profile for logged-in user (by fingerprint -> email lookup)."""
+    fp = get_fingerprint(request, x_fingerprint)
+
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Find account linked to this fingerprint
+            cur.execute("""
+                SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id
+                FROM accounts a WHERE a.fingerprint = %s
+            """, (fp,))
+            account = cur.fetchone()
+
+            if not account:
+                return {"logged_in": False}
+
+            # Get report count
+            cur.execute("SELECT COUNT(*) as count FROM reports WHERE fingerprint = %s", (fp,))
+            report_count = cur.fetchone()["count"]
+
+            # Get user purchase data
+            cur.execute("SELECT reports_used, single_reports_purchased FROM users WHERE fingerprint = %s", (fp,))
+            user_data = cur.fetchone()
+
+            cur.close()
+
+            return {
+                "logged_in": True,
+                "email": account["email"],
+                "name": account.get("name", ""),
+                "company": account.get("company", ""),
+                "plan": account["plan"] or "free",
+                "reports_generated": report_count,
+                "reports_used": user_data["reports_used"] if user_data else 0,
+                "single_reports_purchased": user_data["single_reports_purchased"] if user_data else 0,
+                "member_since": account["created_at"].strftime("%B %Y") if account["created_at"] else "",
+                "has_subscription": account["plan"] in ("pro",),
+            }
+        except Exception as e:
+            logger.error(f"Profile error: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    return {"logged_in": False}
+
+
+@app.post("/api/account/update")
+async def account_update(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Update account name/company."""
+    fp = get_fingerprint(request, x_fingerprint)
+    body = await request.json()
+
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE accounts SET name = %s, company = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE fingerprint = %s
+            """, (body.get("name", ""), body.get("company", ""), fp))
+            conn.commit()
+            cur.close()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Account update error: {e}")
+            raise HTTPException(500, "Update failed")
+        finally:
+            if conn:
+                conn.close()
+
+    raise HTTPException(503, "Database not available")
 
 
 # Mount static files

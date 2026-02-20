@@ -480,6 +480,120 @@
             }
         }
 
+        /* Profile icon button */
+        .profile-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .profile-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: #2563eb;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .profile-avatar.guest { background: #d1d5db; color: #666; }
+        .plan-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+        }
+        .plan-badge.free { background: #f3f4f6; color: #666; }
+        .plan-badge.pro { background: #dbeafe; color: #2563eb; }
+
+        /* Auth Modal */
+        .auth-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 300;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .auth-modal {
+            background: #fff;
+            border-radius: 20px 20px 0 0;
+            padding: 28px 20px;
+            padding-bottom: calc(28px + env(safe-area-inset-bottom, 0));
+            width: 100%;
+            max-width: 420px;
+            animation: slideUp 0.25s ease-out;
+        }
+        .auth-modal h3 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .auth-modal p { font-size: 14px; color: #666; margin-bottom: 18px; }
+        .auth-input {
+            width: 100%;
+            padding: 14px;
+            border: 1.5px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 16px;
+            outline: none;
+            margin-bottom: 12px;
+            -webkit-appearance: none;
+        }
+        .auth-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .auth-error { color: #dc2626; font-size: 13px; margin-bottom: 10px; display: none; }
+        .auth-toggle { font-size: 14px; text-align: center; color: #666; margin-top: 14px; }
+        .auth-toggle a { color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: none; }
+
+        /* Profile Modal */
+        .profile-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 300;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .profile-modal {
+            background: #fff;
+            border-radius: 20px 20px 0 0;
+            padding: 28px 20px;
+            padding-bottom: calc(28px + env(safe-area-inset-bottom, 0));
+            width: 100%;
+            max-width: 420px;
+            animation: slideUp 0.25s ease-out;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .profile-modal h3 { font-size: 20px; font-weight: 700; margin-bottom: 16px; }
+        .profile-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .profile-row:last-child { border-bottom: none; }
+        .profile-label { font-size: 14px; color: #888; }
+        .profile-value { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+
+        @media (min-width: 601px) {
+            .auth-overlay, .profile-overlay { align-items: center; }
+            .auth-modal, .profile-modal {
+                border-radius: 16px;
+                padding-bottom: 28px;
+            }
+        }
+
         /* Hide sections */
         .hidden { display: none !important; }
     </style>
@@ -488,7 +602,38 @@
 
 <div class="header">
     <div class="logo">Condition<span>Report</span></div>
-    <span class="user-status" id="user-status"></span>
+    <div style="display:flex;align-items:center;gap:8px;">
+        <span class="user-status" id="user-status"></span>
+        <button class="profile-btn" id="profile-btn" onclick="openProfileOrAuth()">
+            <div class="profile-avatar guest" id="profile-avatar">?</div>
+        </button>
+    </div>
+</div>
+
+<!-- Auth Modal (Signup / Login) -->
+<div id="auth-modal" class="auth-overlay hidden" onclick="if(event.target===this)closeAuthModal()">
+    <div class="auth-modal">
+        <h3 id="auth-title">Create Account</h3>
+        <p id="auth-subtitle">Save your reports and manage your subscription.</p>
+        <div id="auth-error" class="auth-error"></div>
+        <input type="text" class="auth-input" id="auth-name" placeholder="Your name" autocomplete="name" style="display:block;">
+        <input type="email" class="auth-input" id="auth-email" placeholder="Email address" inputmode="email" autocomplete="email">
+        <input type="password" class="auth-input" id="auth-password" placeholder="Password (6+ characters)" autocomplete="new-password">
+        <button class="btn-primary" id="auth-submit-btn" onclick="submitAuth()">Create Account</button>
+        <div class="auth-toggle" id="auth-toggle">
+            Already have an account? <a onclick="toggleAuthMode()">Log in</a>
+        </div>
+    </div>
+</div>
+
+<!-- Profile Modal -->
+<div id="profile-modal" class="profile-overlay hidden" onclick="if(event.target===this)closeProfileModal()">
+    <div class="profile-modal">
+        <h3>Account</h3>
+        <div id="profile-content"></div>
+        <button class="btn-secondary" onclick="logoutAccount()" style="margin-top:16px;">Log Out</button>
+        <button class="btn-secondary" onclick="closeProfileModal()" style="margin-top:8px;border-color:#d1d5db;color:#666;">Close</button>
+    </div>
 </div>
 
 <div class="container">
@@ -687,9 +832,8 @@ async function loadUserStatus() {
 function updateStatusDisplay() {
     const el = document.getElementById('user-status');
     if (!userStatus) return;
-    if (userStatus.is_pro) {
-        el.textContent = 'Pro';
-        el.style.color = '#2563eb';
+    if (userStatus.is_pro || userStatus.plan === 'pro') {
+        el.innerHTML = '<span class="plan-badge pro">Pro</span>';
     } else if (userStatus.reports_used === 0) {
         el.textContent = '1 free report';
         el.style.color = '#16a34a';
@@ -700,6 +844,11 @@ function updateStatusDisplay() {
         } else {
             el.textContent = '';
         }
+    }
+
+    // Update profile avatar if we got email from status
+    if (userStatus.email && !accountData) {
+        // User has email linked but no local account data — might have been set via webhook
     }
 }
 
@@ -1075,8 +1224,215 @@ function startNew() {
     goToStep1();
 }
 
+// --- Account / Auth ---
+let authMode = 'signup'; // 'signup' or 'login'
+let accountData = JSON.parse(localStorage.getItem('rr_account') || 'null');
+
+function openProfileOrAuth() {
+    if (accountData && accountData.email) {
+        openProfileModal();
+    } else {
+        openAuthModal();
+    }
+}
+
+function openAuthModal() {
+    authMode = 'signup';
+    updateAuthUI();
+    document.getElementById('auth-modal').classList.remove('hidden');
+    document.getElementById('auth-error').style.display = 'none';
+    document.getElementById('auth-email').value = '';
+    document.getElementById('auth-password').value = '';
+    document.getElementById('auth-name').value = '';
+    setTimeout(() => document.getElementById('auth-name').focus(), 300);
+}
+
+function closeAuthModal() {
+    document.getElementById('auth-modal').classList.add('hidden');
+}
+
+function toggleAuthMode() {
+    authMode = authMode === 'signup' ? 'login' : 'signup';
+    updateAuthUI();
+    document.getElementById('auth-error').style.display = 'none';
+}
+
+function updateAuthUI() {
+    const isSignup = authMode === 'signup';
+    document.getElementById('auth-title').textContent = isSignup ? 'Create Account' : 'Log In';
+    document.getElementById('auth-subtitle').textContent = isSignup
+        ? 'Save your reports and manage your subscription.'
+        : 'Welcome back. Log in to your account.';
+    document.getElementById('auth-name').style.display = isSignup ? 'block' : 'none';
+    document.getElementById('auth-submit-btn').textContent = isSignup ? 'Create Account' : 'Log In';
+    document.getElementById('auth-toggle').innerHTML = isSignup
+        ? 'Already have an account? <a onclick="toggleAuthMode()">Log in</a>'
+        : "Don't have an account? <a onclick=\"toggleAuthMode()\">Sign up</a>";
+    document.getElementById('auth-password').autocomplete = isSignup ? 'new-password' : 'current-password';
+}
+
+async function submitAuth() {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+    const name = document.getElementById('auth-name').value.trim();
+    const errEl = document.getElementById('auth-error');
+
+    if (!email || !email.includes('@')) {
+        errEl.textContent = 'Enter a valid email address';
+        errEl.style.display = 'block';
+        return;
+    }
+    if (password.length < 6) {
+        errEl.textContent = 'Password must be at least 6 characters';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    const btn = document.getElementById('auth-submit-btn');
+    btn.disabled = true;
+    btn.textContent = authMode === 'signup' ? 'Creating...' : 'Logging in...';
+    errEl.style.display = 'none';
+
+    try {
+        const endpoint = authMode === 'signup' ? '/api/account/signup' : '/api/account/login';
+        const body = { email, password };
+        if (authMode === 'signup') body.name = name;
+
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Failed');
+        }
+
+        const data = await res.json();
+        accountData = { email: data.email, name: data.name || name, plan: data.plan || 'free' };
+        localStorage.setItem('rr_account', JSON.stringify(accountData));
+        updateProfileUI();
+        closeAuthModal();
+        await loadUserStatus();
+    } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+    }
+
+    btn.disabled = false;
+    btn.textContent = authMode === 'signup' ? 'Create Account' : 'Log In';
+}
+
+async function openProfileModal() {
+    const modal = document.getElementById('profile-modal');
+    const content = document.getElementById('profile-content');
+    modal.classList.remove('hidden');
+
+    content.innerHTML = '<div style="text-align:center;padding:20px;color:#999;">Loading...</div>';
+
+    try {
+        const res = await fetch('/api/account/profile', { headers: apiHeaders() });
+        const data = await res.json();
+
+        if (!data.logged_in) {
+            closeProfileModal();
+            openAuthModal();
+            return;
+        }
+
+        // Update local data
+        accountData = { email: data.email, name: data.name, plan: data.plan };
+        localStorage.setItem('rr_account', JSON.stringify(accountData));
+
+        const planLabel = data.plan === 'pro' ? 'Pro' : 'Free';
+        const planClass = data.plan === 'pro' ? 'pro' : 'free';
+
+        content.innerHTML = `
+            <div class="profile-row">
+                <span class="profile-label">Email</span>
+                <span class="profile-value">${data.email}</span>
+            </div>
+            <div class="profile-row">
+                <span class="profile-label">Name</span>
+                <span class="profile-value">${data.name || '—'}</span>
+            </div>
+            <div class="profile-row">
+                <span class="profile-label">Plan</span>
+                <span class="plan-badge ${planClass}">${planLabel}</span>
+            </div>
+            <div class="profile-row">
+                <span class="profile-label">Reports Generated</span>
+                <span class="profile-value">${data.reports_generated || 0}</span>
+            </div>
+            <div class="profile-row">
+                <span class="profile-label">Single Reports Purchased</span>
+                <span class="profile-value">${data.single_reports_purchased || 0}</span>
+            </div>
+            <div class="profile-row">
+                <span class="profile-label">Member Since</span>
+                <span class="profile-value">${data.member_since || '—'}</span>
+            </div>
+            ${data.plan !== 'pro' ? `
+                <div style="margin-top:16px;">
+                    <button class="btn-primary" onclick="closeProfileModal();checkout('pro')">Upgrade to Pro</button>
+                </div>
+            ` : `
+                <div style="margin-top:16px;text-align:center;">
+                    <span style="color:#2563eb;font-weight:600;font-size:14px;">Unlimited reports included</span>
+                </div>
+            `}
+        `;
+    } catch (err) {
+        content.innerHTML = '<div style="color:#dc2626;padding:20px;text-align:center;">Failed to load profile</div>';
+    }
+}
+
+function closeProfileModal() {
+    document.getElementById('profile-modal').classList.add('hidden');
+}
+
+function logoutAccount() {
+    accountData = null;
+    localStorage.removeItem('rr_account');
+    updateProfileUI();
+    closeProfileModal();
+}
+
+function updateProfileUI() {
+    const avatar = document.getElementById('profile-avatar');
+    if (accountData && accountData.email) {
+        const initial = (accountData.name || accountData.email)[0].toUpperCase();
+        avatar.textContent = initial;
+        avatar.classList.remove('guest');
+    } else {
+        avatar.textContent = '?';
+        avatar.classList.add('guest');
+    }
+}
+
+// On load, check if account exists and auto-verify
+async function checkAccountOnLoad() {
+    if (accountData && accountData.email) {
+        updateProfileUI();
+        // Verify account is still valid
+        try {
+            const res = await fetch('/api/account/profile', { headers: apiHeaders() });
+            const data = await res.json();
+            if (data.logged_in) {
+                accountData = { email: data.email, name: data.name, plan: data.plan };
+                localStorage.setItem('rr_account', JSON.stringify(accountData));
+                updateProfileUI();
+            }
+        } catch (e) {
+            // Silently fail — just use cached data
+        }
+    }
+}
+
 // --- Boot ---
 init();
+checkAccountOnLoad();
 </script>
 </body>
 </html>
