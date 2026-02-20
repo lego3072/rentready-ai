@@ -1652,5 +1652,173 @@ async def account_update(request: Request, x_fingerprint: Optional[str] = Header
     raise HTTPException(503, "Database not available")
 
 
+# --- Test endpoint: Send 5 sample reports (REMOVE AFTER TESTING) ---
+TEST_REPORTS = [
+    {
+        "address": "123 Oak Avenue, Apt 4B", "tenant": "Sarah Johnson", "landlord": "Riverside Properties LLC",
+        "report_type": "Move-In", "condition": "Excellent",
+        "rooms": [
+            {"name": "Living Room", "overall_rating": "Good", "summary": "Freshly painted walls, clean hardwood floors, all windows functional.", "items": [
+                {"name": "Walls", "rating": "Good", "notes": "Freshly painted, no marks"}, {"name": "Flooring", "rating": "Good", "notes": "Hardwood, recently refinished"},
+                {"name": "Windows", "rating": "Good", "notes": "Double-pane, no cracks"}, {"name": "Lighting", "rating": "Good", "notes": "Ceiling fan functional"}], "flags": []},
+            {"name": "Kitchen", "overall_rating": "Good", "summary": "Recently renovated with new countertops and appliances.", "items": [
+                {"name": "Countertops", "rating": "Good", "notes": "Granite, no chips"}, {"name": "Appliances", "rating": "Good", "notes": "Stainless steel, like-new"},
+                {"name": "Cabinets", "rating": "Good", "notes": "Soft-close, no damage"}, {"name": "Sink", "rating": "Good", "notes": "No leaks"}], "flags": []},
+        ],
+    },
+    {
+        "address": "456 Maple Street, Unit 12", "tenant": "Michael Chen", "landlord": "Greenfield Management",
+        "report_type": "Move-In", "condition": "Good",
+        "rooms": [
+            {"name": "Living Room", "overall_rating": "Good", "summary": "Good condition with minor scuffs on baseboards.", "items": [
+                {"name": "Walls", "rating": "Good", "notes": "Minor nail hole above fireplace"}, {"name": "Flooring", "rating": "Good", "notes": "Carpet, light wear at entrance"},
+                {"name": "Windows", "rating": "Good", "notes": "One screen has small tear"}, {"name": "Baseboards", "rating": "Fair", "notes": "Several scuff marks"}], "flags": ["Screen tear on east window"]},
+            {"name": "Kitchen", "overall_rating": "Good", "summary": "Clean and functional. Grout needs re-sealing.", "items": [
+                {"name": "Countertops", "rating": "Good", "notes": "Laminate, minor edge wear"}, {"name": "Appliances", "rating": "Good", "notes": "All working"},
+                {"name": "Cabinets", "rating": "Good", "notes": "One hinge loose"}, {"name": "Floor Tile", "rating": "Fair", "notes": "Grout darkening"}], "flags": ["Grout needs re-sealing"]},
+        ],
+    },
+    {
+        "address": "789 Pine Blvd, Suite 3", "tenant": "Jessica Martinez", "landlord": "Summit Realty Group",
+        "report_type": "Move-Out", "condition": "Fair",
+        "rooms": [
+            {"name": "Living Room", "overall_rating": "Fair", "summary": "Normal wear from 2-year tenancy. Wall marks, carpet traffic patterns.", "items": [
+                {"name": "Walls", "rating": "Fair", "notes": "Multiple nail holes, scuffs near doorway"}, {"name": "Flooring", "rating": "Fair", "notes": "Carpet traffic patterns, two small stains"},
+                {"name": "Windows", "rating": "Good", "notes": "Functional, clean"}, {"name": "Lighting", "rating": "Fair", "notes": "One bulb out in ceiling fan"}], "flags": ["Wall touch-up needed", "Carpet may need professional cleaning"]},
+            {"name": "Kitchen", "overall_rating": "Fair", "summary": "Moderate wear. Scratched countertops. Stovetop residue.", "items": [
+                {"name": "Countertops", "rating": "Fair", "notes": "Surface scratches, minor staining"}, {"name": "Appliances", "rating": "Fair", "notes": "Stovetop baked-on residue"},
+                {"name": "Cabinets", "rating": "Fair", "notes": "Handle wear, one drawer sticks"}, {"name": "Sink", "rating": "Fair", "notes": "Slow drain"}], "flags": ["Stovetop needs deep cleaning", "Slow drain needs snaking"]},
+        ],
+    },
+    {
+        "address": "321 Elm Court, Apt 7A", "tenant": "Robert Williams", "landlord": "Harbor Point Properties",
+        "report_type": "Move-Out", "condition": "Poor",
+        "rooms": [
+            {"name": "Living Room", "overall_rating": "Poor", "summary": "Significant damage. Drywall hole, carpet burns, detached baseboard.", "items": [
+                {"name": "Walls", "rating": "Poor", "notes": "6-inch hole in drywall, marker drawings"}, {"name": "Flooring", "rating": "Poor", "notes": "Cigarette burn, permanent stains"},
+                {"name": "Baseboards", "rating": "Poor", "notes": "Detached, water damage visible"}, {"name": "Lighting", "rating": "Fair", "notes": "Cover cracked"}],
+                "flags": ["Drywall repair required", "Carpet replacement needed", "Baseboard water damage — investigate"]},
+            {"name": "Kitchen", "overall_rating": "Poor", "summary": "Countertop chip, broken cabinet, dishwasher not draining, pest evidence.", "items": [
+                {"name": "Countertops", "rating": "Poor", "notes": "Large chip, burn marks"}, {"name": "Appliances", "rating": "Poor", "notes": "Dishwasher not draining, microwave handle broken"},
+                {"name": "Cabinets", "rating": "Poor", "notes": "Door off hinge, grease buildup"}, {"name": "Under Sink", "rating": "Poor", "notes": "Mouse droppings, pipe corrosion"}],
+                "flags": ["Dishwasher repair needed", "Pest control required", "Pipe corrosion — plumber needed"]},
+        ],
+    },
+    {
+        "address": "555 Cedar Lane, House", "tenant": "Amanda Thompson", "landlord": "Lakeside Rentals Inc",
+        "report_type": "Move-In", "condition": "Mixed",
+        "rooms": [
+            {"name": "Living Room", "overall_rating": "Good", "summary": "Very good. Recently painted, new blinds, well-maintained hardwood.", "items": [
+                {"name": "Walls", "rating": "Good", "notes": "Freshly painted"}, {"name": "Flooring", "rating": "Good", "notes": "Hardwood, minor scratches"},
+                {"name": "Windows", "rating": "Good", "notes": "New blinds"}, {"name": "Lighting", "rating": "Good", "notes": "All working"}], "flags": []},
+            {"name": "Bathroom", "overall_rating": "Poor", "summary": "Needs attention. Toilet wobbles, caulking peeling, loud exhaust fan.", "items": [
+                {"name": "Toilet", "rating": "Poor", "notes": "Wobbles, wax ring suspected"}, {"name": "Shower/Tub", "rating": "Fair", "notes": "Caulking peeling"},
+                {"name": "Vanity", "rating": "Fair", "notes": "Cabinet catch broken"}, {"name": "Ventilation", "rating": "Poor", "notes": "Fan very loud, vibrates"}],
+                "flags": ["Toilet needs new wax ring", "Exhaust fan replacement recommended"]},
+        ],
+    },
+]
+
+
+@app.post("/api/test/send-reports")
+async def send_test_reports(request: Request):
+    """TEMPORARY: Generate 5 mock reports and email them. Remove after testing."""
+    body = await request.json()
+    email = body.get("email", "")
+    if not email or "@" not in email:
+        raise HTTPException(400, "Valid email required")
+
+    results = []
+    for i, test in enumerate(TEST_REPORTS):
+        report_id = str(uuid.uuid4())
+        rooms_structured = []
+        for room in test["rooms"]:
+            rooms_structured.append({
+                "name": room["name"],
+                "description": json.dumps(room),
+                "photo_paths": [],
+                "photo_count": 0,
+            })
+
+        report_data = {
+            "id": report_id,
+            "fingerprint": "test_sender",
+            "date": datetime.now().strftime("%B %d, %Y"),
+            "report_type": test["report_type"],
+            "property_info": {
+                "address": test["address"],
+                "tenant_name": test["tenant"],
+                "landlord_name": test["landlord"],
+            },
+            "rooms": rooms_structured,
+        }
+
+        # Generate PDF
+        pdf_path = generate_pdf_report(report_data)
+        report_data["pdf_path"] = pdf_path
+
+        # Store temporarily
+        reports_db[report_id] = report_data
+
+        # Email the report
+        if not RESEND_API_KEY:
+            results.append({"address": test["address"], "condition": test["condition"], "error": "No Resend key"})
+            continue
+
+        pdf_bytes = Path(pdf_path).read_bytes()
+        pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+        address = test["address"]
+        rtype = test["report_type"]
+        condition = test["condition"]
+        rdate = report_data["date"]
+
+        async with httpx.AsyncClient() as http:
+            res = await http.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": "Condition Report <reports@condition-report.com>",
+                    "to": [email],
+                    "subject": f"[{i+1}/5 {condition}] Condition Report — {address}",
+                    "html": f"""
+                        <div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#fff;">
+                            <div style="text-align:center;padding:16px 0;border-bottom:3px solid #2563eb;">
+                                <span style="font-size:24px;font-weight:800;color:#1a1a2e;">Condition</span><span style="font-size:24px;font-weight:800;color:#2563eb;">Report</span>
+                            </div>
+                            <div style="padding:24px 0;">
+                                <h2 style="color:#1a1a2e;margin:0 0 8px;font-size:20px;">{rtype} Inspection Report</h2>
+                                <p style="color:#555;margin:0 0 20px;font-size:15px;">Condition report for <strong>{address}</strong> is attached.</p>
+                                <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f8f9fa;border-radius:8px;">
+                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;width:120px;">Address</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;">{address}</td></tr>
+                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;">Type</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;">{rtype}</td></tr>
+                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;">Condition</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;">{condition}</td></tr>
+                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;">Date</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;">{rdate}</td></tr>
+                                    <tr><td style="padding:10px 14px;color:#888;font-size:13px;">Rooms</td><td style="padding:10px 14px;font-size:14px;">{len(test['rooms'])}</td></tr>
+                                </table>
+                                <p style="color:#555;font-size:13px;margin:20px 0 0;">Open the PDF to see room-by-room condition ratings and action items.</p>
+                            </div>
+                            <div style="border-top:1px solid #e5e7eb;padding:16px 0 0;text-align:center;">
+                                <p style="color:#999;font-size:11px;margin:0;">Generated by <a href="https://condition-report.com" style="color:#2563eb;text-decoration:none;">condition-report.com</a></p>
+                            </div>
+                        </div>
+                    """,
+                    "attachments": [{
+                        "filename": f"Condition_Report_{address.replace(' ', '_').replace(',', '')}.pdf",
+                        "content": pdf_b64,
+                    }],
+                },
+            )
+
+        if res.status_code >= 400:
+            results.append({"address": address, "condition": condition, "error": res.text})
+        else:
+            results.append({"address": address, "condition": condition, "sent": True})
+
+    return {"results": results, "total": len(results)}
+
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="landing"), name="static")
