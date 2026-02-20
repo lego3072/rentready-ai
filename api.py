@@ -1116,7 +1116,7 @@ async def og_image():
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
+    return StreamingResponse(buf, media_type="image/png", headers={"Cache-Control": "no-cache, no-store, must-revalidate", "CDN-Cache-Control": "no-store"})
 
 
 @app.get("/robots.txt")

@@ -2259,7 +2259,7 @@ async function requestPasswordReset() {
             body: JSON.stringify({ email }),
         });
         const data = await res.json();
-        successEl.textContent = 'If an account exists with that email, a reset link has been sent. Check your inbox.';
+        successEl.textContent = 'If an account exists with that email, a reset link has been sent. Check your inbox and spam folder.';
         successEl.style.display = 'block';
     } catch (err) {
         errEl.textContent = 'Something went wrong. Try again.';
