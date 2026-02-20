@@ -782,11 +782,38 @@ def generate_pdf_report(report_data: dict) -> str:
     elements.append(Spacer(1, 30))
     elements.append(Paragraph("Signatures", room_title_style))
 
-    sig_data = [
-        ["Landlord/Manager:", "____________________________", "Date: _______________"],
-        ["", "", ""],
-        ["Tenant:", "____________________________", "Date: _______________"],
-    ]
+    sig_path = report_data.get("signature_path", "")
+    if not sig_path:
+        # Check if a signature file exists on disk for this report
+        potential_sig = REPORT_DIR / f"{report_id}_sig.png"
+        if potential_sig.exists():
+            sig_path = str(potential_sig)
+
+    if sig_path and os.path.exists(sig_path):
+        # Digital signature present — embed the image
+        elements.append(Paragraph("Inspector/Manager Signature:", body_style))
+        try:
+            sig_img = RLImage(sig_path, width=2.5 * inch, height=0.8 * inch)
+            sig_img.hAlign = "LEFT"
+            elements.append(sig_img)
+        except Exception:
+            elements.append(Paragraph("[Signature image could not be loaded]", meta_style))
+        elements.append(Paragraph(
+            f"Signed digitally on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}",
+            meta_style,
+        ))
+        elements.append(Spacer(1, 12))
+        sig_data = [
+            ["Tenant:", "____________________________", "Date: _______________"],
+        ]
+    else:
+        # No digital signature — show blank lines for both
+        sig_data = [
+            ["Landlord/Manager:", "____________________________", "Date: _______________"],
+            ["", "", ""],
+            ["Tenant:", "____________________________", "Date: _______________"],
+        ]
+
     sig_table = Table(sig_data, colWidths=[1.5 * inch, 3.2 * inch, 2 * inch])
     sig_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
@@ -1102,6 +1129,36 @@ async def download_report_pdf(
     )
 
 
+@app.post("/api/report/{report_id}/signature")
+async def add_signature(report_id: str, request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Save a signature image and regenerate the PDF with it embedded."""
+    fp = get_fingerprint(request, x_fingerprint)
+    report = get_report_from_db(report_id) or reports_db.get(report_id)
+
+    if not report:
+        raise HTTPException(404, "Report not found")
+    if report["fingerprint"] != fp:
+        raise HTTPException(403, "Not your report")
+
+    body = await request.json()
+    sig_data = body.get("signature", "")
+
+    if not sig_data or not sig_data.startswith("data:image/png;base64,"):
+        raise HTTPException(400, "Invalid signature data")
+
+    # Save signature image to disk
+    sig_b64 = sig_data.split(",", 1)[1]
+    sig_bytes = base64.b64decode(sig_b64)
+    sig_path = REPORT_DIR / f"{report_id}_sig.png"
+    sig_path.write_bytes(sig_bytes)
+
+    # Regenerate PDF with signature embedded
+    report["signature_path"] = str(sig_path)
+    generate_pdf_report(report)
+
+    return {"ok": True}
+
+
 @app.get("/api/report/{report_id}")
 async def get_report(report_id: str, request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Get report data (without PDF)."""
@@ -1211,7 +1268,7 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
         payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
-        success_url=f"{BASE_URL}?payment=success&type=pro",
+        success_url=f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}",
         cancel_url=f"{BASE_URL}?payment=cancelled",
         metadata={"fingerprint": fp, "type": "pro"},
     )
@@ -1337,6 +1394,10 @@ async def stripe_webhook(request: Request):
                 cur = conn.cursor()
                 cur.execute("""
                     UPDATE users SET plan = 'free', updated_at = CURRENT_TIMESTAMP
+                    WHERE stripe_customer_id = %s
+                """, (customer_id,))
+                cur.execute("""
+                    UPDATE accounts SET plan = 'free', updated_at = CURRENT_TIMESTAMP
                     WHERE stripe_customer_id = %s
                 """, (customer_id,))
                 conn.commit()

@@ -58,12 +58,6 @@
                 "description": "Unlimited condition reports per year"
             }
         ],
-        "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": "4.8",
-            "ratingCount": "50",
-            "bestRating": "5"
-        },
         "creator": {
             "@type": "Organization",
             "name": "Condition Report",
@@ -564,6 +558,18 @@
         .nav-buttons .btn-secondary { flex: 1; }
         .nav-buttons .btn-primary { flex: 2; }
 
+        /* Signature pad */
+        .sig-canvas {
+            border: 2px dashed #d1d5db;
+            border-radius: 10px;
+            background: #fafafa;
+            touch-action: none;
+            width: 100%;
+            height: 150px;
+            cursor: crosshair;
+        }
+        .sig-canvas.signed { border-color: #2563eb; border-style: solid; }
+
         /* Email modal — mobile optimized */
         .modal-overlay {
             position: fixed;
@@ -927,6 +933,20 @@
         </div>
     </div>
 
+    <!-- Signature Modal -->
+    <div id="sig-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeSigModal()">
+        <div class="modal-content">
+            <h3>Add Your Signature</h3>
+            <p style="color:#666;font-size:14px;margin-bottom:12px;">Sign below to include your signature on the report.</p>
+            <canvas id="sig-canvas" class="sig-canvas"></canvas>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <button class="btn-secondary" onclick="clearSignature()" style="flex:1;">Clear</button>
+                <button class="btn-primary" onclick="saveSignature()" id="save-sig-btn" style="flex:2;">Save Signature</button>
+            </div>
+            <button class="btn-secondary" onclick="skipSignature()" style="margin-top:8px;color:#666;">Skip — No Signature</button>
+        </div>
+    </div>
+
     <!-- Past Reports -->
     <div id="past-reports-section" class="hidden" style="margin-top:20px;">
         <div class="card">
@@ -1000,7 +1020,7 @@ async function init() {
     if (params.get('payment') === 'success') {
         window.history.replaceState({}, '', '/');
         const type = params.get('type');
-        const msg = type === 'pro' ? 'Welcome to Pro! You have unlimited reports.' : 'Payment successful! Your report credit has been added.';
+        const msg = (type === 'pro' || type === 'annual') ? 'Welcome to Pro! You have unlimited reports.' : 'Payment successful! Your report credit has been added.';
         showToast(msg, 'success');
 
         // Google Ads conversion tracking
@@ -1385,6 +1405,8 @@ function showHardPaywall() {
     document.getElementById('results-state').classList.remove('hidden');
     document.getElementById('download-btn').classList.add('hidden');
     document.getElementById('email-btn').classList.add('hidden');
+    document.getElementById('text-btn').classList.add('hidden');
+    document.getElementById('share-btn').classList.add('hidden');
     document.getElementById('results-rooms').innerHTML = `
         <div style="text-align:center;padding:32px 16px;">
             <div style="font-size:48px;margin-bottom:16px;">✅</div>
@@ -1435,20 +1457,136 @@ function showPaywall() {
     document.getElementById('upgrade-banner').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// --- Signature Pad ---
+let sigCanvas, sigCtx, sigDrawing = false, sigHasContent = false;
+let savedSignatureData = null;
+let sigPendingAction = null; // {type: 'download'|'email'|'text'|'share', reportId}
+
+function initSigCanvas() {
+    sigCanvas = document.getElementById('sig-canvas');
+    if (!sigCanvas) return;
+    sigCtx = sigCanvas.getContext('2d');
+    // Set canvas resolution to match display size
+    const rect = sigCanvas.getBoundingClientRect();
+    sigCanvas.width = rect.width * 2;
+    sigCanvas.height = rect.height * 2;
+    sigCtx.scale(2, 2);
+    sigCtx.strokeStyle = '#1a1a2e';
+    sigCtx.lineWidth = 2;
+    sigCtx.lineCap = 'round';
+    sigCtx.lineJoin = 'round';
+    sigHasContent = false;
+    sigCanvas.classList.remove('signed');
+
+    // Mouse events
+    sigCanvas.addEventListener('mousedown', sigStart);
+    sigCanvas.addEventListener('mousemove', sigMove);
+    sigCanvas.addEventListener('mouseup', sigEnd);
+    sigCanvas.addEventListener('mouseleave', sigEnd);
+    // Touch events
+    sigCanvas.addEventListener('touchstart', sigTouchStart, {passive: false});
+    sigCanvas.addEventListener('touchmove', sigTouchMove, {passive: false});
+    sigCanvas.addEventListener('touchend', sigEnd);
+}
+
+function sigStart(e) {
+    sigDrawing = true;
+    sigCtx.beginPath();
+    const r = sigCanvas.getBoundingClientRect();
+    sigCtx.moveTo(e.clientX - r.left, e.clientY - r.top);
+}
+function sigMove(e) {
+    if (!sigDrawing) return;
+    const r = sigCanvas.getBoundingClientRect();
+    sigCtx.lineTo(e.clientX - r.left, e.clientY - r.top);
+    sigCtx.stroke();
+    sigHasContent = true;
+    sigCanvas.classList.add('signed');
+}
+function sigEnd() { sigDrawing = false; }
+function sigTouchStart(e) {
+    e.preventDefault();
+    const t = e.touches[0];
+    sigStart({clientX: t.clientX, clientY: t.clientY});
+}
+function sigTouchMove(e) {
+    e.preventDefault();
+    const t = e.touches[0];
+    sigMove({clientX: t.clientX, clientY: t.clientY});
+}
+
+function clearSignature() {
+    sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+    sigHasContent = false;
+    sigCanvas.classList.remove('signed');
+}
+
+function openSigModal(action, reportId) {
+    sigPendingAction = { type: action, reportId: reportId || currentReportId };
+    document.getElementById('sig-modal').classList.remove('hidden');
+    document.getElementById('sig-modal').style.display = 'flex';
+    setTimeout(() => initSigCanvas(), 100);
+}
+
+function closeSigModal() {
+    document.getElementById('sig-modal').classList.add('hidden');
+    document.getElementById('sig-modal').style.display = '';
+    sigPendingAction = null;
+}
+
+async function saveSignature() {
+    if (!sigHasContent) {
+        showToast('Please sign above or tap Skip', 'info');
+        return;
+    }
+    savedSignatureData = sigCanvas.toDataURL('image/png');
+    const pending = sigPendingAction;
+    // Upload signature to backend
+    if (pending && pending.reportId) {
+        try {
+            await fetch(`/api/report/${pending.reportId}/signature`, {
+                method: 'POST',
+                headers: apiHeaders(),
+                body: JSON.stringify({ signature: savedSignatureData }),
+            });
+        } catch (e) { /* non-blocking */ }
+    }
+    closeSigModal();
+    executePendingAction(pending);
+}
+
+function skipSignature() {
+    savedSignatureData = null;
+    const pending = sigPendingAction;
+    closeSigModal();
+    executePendingAction(pending);
+}
+
+function executePendingAction(pending) {
+    if (!pending) return;
+    const { type, reportId } = pending;
+    if (type === 'download') doDownloadPDF(reportId);
+    else if (type === 'email') doShowEmailModal(reportId);
+    else if (type === 'text') doTextReport();
+    else if (type === 'share') doShareReport();
+}
+
 // --- Downloads ---
 function downloadPDF() {
     if (!currentReportId) return;
     if (!hasPaidAccess()) { showPaywall(); return; }
+    openSigModal('download', currentReportId);
+}
+
+function doDownloadPDF(reportId) {
     const link = document.createElement('a');
-    link.href = `/api/report/${currentReportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
+    link.href = `/api/report/${reportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
     link.click();
 }
 
 function downloadPastReport(reportId) {
     if (!hasPaidAccess()) { showPaywall(); return; }
-    const link = document.createElement('a');
-    link.href = `/api/report/${reportId}/pdf?fp=${encodeURIComponent(fingerprint)}`;
-    link.click();
+    doDownloadPDF(reportId);
 }
 
 // --- Email ---
@@ -1456,7 +1594,11 @@ let emailReportId = null;
 
 function showEmailModal() {
     if (!hasPaidAccess()) { showPaywall(); return; }
-    emailReportId = currentReportId;
+    openSigModal('email', currentReportId);
+}
+
+function doShowEmailModal(reportId) {
+    emailReportId = reportId || currentReportId;
     document.getElementById('email-modal').style.display = 'flex';
     document.getElementById('email-modal').classList.remove('hidden');
     document.getElementById('email-input').value = '';
@@ -1470,12 +1612,7 @@ function closeEmailModal() {
 
 function showEmailModalForReport(reportId) {
     if (!hasPaidAccess()) { showPaywall(); return; }
-    emailReportId = reportId;
-    document.getElementById('email-modal').style.display = 'flex';
-    document.getElementById('email-modal').classList.remove('hidden');
-    document.getElementById('email-input').value = '';
-    document.getElementById('email-status').textContent = '';
-    setTimeout(() => document.getElementById('email-input').focus(), 300);
+    openSigModal('email', reportId);
 }
 
 async function sendEmail() {
@@ -1529,16 +1666,24 @@ async function getShareLink() {
 
 async function textReport() {
     if (!hasPaidAccess()) { showPaywall(); return; }
+    openSigModal('text', currentReportId);
+}
+
+async function doTextReport() {
     const url = await getShareLink();
     if (!url) return;
     const address = document.getElementById('address').value.trim() || 'the property';
     const msg = `Property Condition Report for ${address}\n\nDownload PDF: ${url}\n\nGenerated by condition-report.com`;
     // Open native SMS app with pre-filled message
-    window.location.href = `sms:?&body=${encodeURIComponent(msg)}`;
+    window.location.href = `sms:?body=${encodeURIComponent(msg)}`;
 }
 
 async function shareReport() {
     if (!hasPaidAccess()) { showPaywall(); return; }
+    openSigModal('share', currentReportId);
+}
+
+async function doShareReport() {
     const url = await getShareLink();
     if (!url) return;
     const address = document.getElementById('address').value.trim() || 'the property';
