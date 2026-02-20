@@ -117,8 +117,16 @@
             font-size: 20px;
             font-weight: 700;
             color: #1a1a2e;
+            line-height: 1.1;
         }
         .logo span { color: #2563eb; }
+        .logo-sub {
+            font-size: 10px;
+            font-weight: 500;
+            color: #999;
+            letter-spacing: 0.3px;
+            display: block;
+        }
         .user-status {
             font-size: 14px;
             font-weight: 600;
@@ -754,7 +762,7 @@
 <body>
 
 <div class="header">
-    <div class="logo" onclick="location.href='/'" style="cursor:pointer;">Condition<span>Report</span></div>
+    <div class="logo" onclick="location.href='/'" style="cursor:pointer;">Condition<span>Report</span><span class="logo-sub">a DataWeaveAI company</span></div>
     <div style="display:flex;align-items:center;gap:8px;">
         <span class="user-status" id="user-status"></span>
         <button class="profile-btn" id="profile-btn" onclick="openProfileOrAuth()">

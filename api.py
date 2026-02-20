@@ -1573,6 +1573,7 @@ async def email_report(request: Request, x_fingerprint: Optional[str] = Header(N
                     <div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#fff;">
                         <div style="text-align:center;padding:16px 0;border-bottom:3px solid #2563eb;">
                             <span style="font-size:24px;font-weight:800;color:#1a1a2e;">Condition</span><span style="font-size:24px;font-weight:800;color:#2563eb;">Report</span>
+                            <br><span style="font-size:11px;color:#999;font-weight:500;">a DataWeaveAI company</span>
                         </div>
                         <div style="padding:24px 0;">
                             <h2 style="color:#1a1a2e;margin:0 0 8px;font-size:20px;">{report_type} Inspection Report</h2>
