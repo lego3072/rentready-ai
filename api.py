@@ -156,6 +156,18 @@ reports_db: dict = {}
 
 app = FastAPI(title="Condition Report", version="1.0.0")
 
+
+@app.middleware("http")
+async def https_redirect(request: Request, call_next):
+    """Redirect HTTP to HTTPS in production (behind Railway/Cloudflare proxy)."""
+    proto = request.headers.get("x-forwarded-proto", "https")
+    if proto == "http" and "localhost" not in str(request.url):
+        url = str(request.url).replace("http://", "https://", 1)
+        from starlette.responses import RedirectResponse
+        return RedirectResponse(url, status_code=301)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
