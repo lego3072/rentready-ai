@@ -633,8 +633,7 @@ def generate_pdf_report(report_data: dict) -> str:
     if prop.get("landlord_name"):
         info_data.append(["Landlord/Manager:", prop["landlord_name"]])
     info_data.append(["Inspection Date:", report_data.get("date", datetime.now().strftime("%B %d, %Y"))])
-    info_data.append(["Report Type:", report_data.get("report_type", "Move-In")])
-    info_data.append(["Report ID:", report_id[:12]])
+    info_data.append(["Report Type:", report_data.get("report_type", "Move-In") + " Inspection"])
 
     if info_data:
         info_table = Table(info_data, colWidths=[1.8 * inch, 4.7 * inch])
@@ -695,19 +694,28 @@ def generate_pdf_report(report_data: dict) -> str:
 
         elements.append(Paragraph(f'{room["name"]}  —  Overall: {overall}', room_title_style))
 
-        # Add room photos
+        # Add room photos — size based on count
+        photo_paths_valid = [p for p in room.get("photo_paths", [])[:3] if os.path.exists(p)]
+        num_photos = len(photo_paths_valid)
+        if num_photos == 1:
+            pw, ph = 4.0 * inch, 3.0 * inch  # Single photo: large
+        elif num_photos == 2:
+            pw, ph = 2.8 * inch, 2.1 * inch  # Two photos: medium
+        else:
+            pw, ph = 2.1 * inch, 1.6 * inch  # Three photos: compact
+
         photo_row = []
-        for photo_path in room.get("photo_paths", [])[:3]:
-            if os.path.exists(photo_path):
-                try:
-                    img = RLImage(photo_path, width=2.1 * inch, height=1.6 * inch)
-                    img.hAlign = "LEFT"
-                    photo_row.append(img)
-                except Exception:
-                    pass
+        for photo_path in photo_paths_valid:
+            try:
+                img = RLImage(photo_path, width=pw, height=ph)
+                img.hAlign = "CENTER"
+                photo_row.append(img)
+            except Exception:
+                pass
 
         if photo_row:
-            photo_table = Table([photo_row], colWidths=[2.2 * inch] * len(photo_row))
+            col_w = (pw + 0.1 * inch)
+            photo_table = Table([photo_row], colWidths=[col_w] * len(photo_row))
             photo_table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
