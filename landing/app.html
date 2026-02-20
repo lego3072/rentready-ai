@@ -2,22 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#ffffff">
     <title>RentReady AI — Property Condition Reports in 60 Seconds</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html { -webkit-text-size-adjust: 100%; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f8f9fa;
             color: #1a1a2e;
             line-height: 1.6;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: env(safe-area-inset-bottom, 0);
         }
 
         /* Header */
         .header {
             background: #fff;
             border-bottom: 1px solid #e0e0e0;
-            padding: 12px 20px;
+            padding: 14px 16px;
+            padding-top: calc(14px + env(safe-area-inset-top, 0));
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -26,138 +33,127 @@
             z-index: 100;
         }
         .logo {
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 700;
             color: #1a1a2e;
         }
         .logo span { color: #2563eb; }
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
         .user-status {
-            font-size: 13px;
+            font-size: 14px;
+            font-weight: 600;
             color: #666;
         }
 
         /* Main container */
         .container {
-            max-width: 800px;
+            max-width: 600px;
             margin: 0 auto;
-            padding: 20px;
-        }
-
-        /* Hero — minimal */
-        .hero {
-            text-align: center;
-            padding: 30px 0 20px;
-        }
-        .hero h1 {
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .hero p {
-            font-size: 15px;
-            color: #666;
+            padding: 12px;
         }
 
         /* Steps indicator */
         .steps {
             display: flex;
             justify-content: center;
-            gap: 8px;
-            margin: 20px 0;
+            align-items: center;
+            gap: 6px;
+            margin: 16px 0;
         }
         .step {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
             font-size: 13px;
             color: #999;
         }
         .step.active { color: #2563eb; font-weight: 600; }
         .step.done { color: #16a34a; }
         .step-num {
-            width: 24px;
-            height: 24px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 700;
             background: #e5e7eb;
             color: #666;
         }
         .step.active .step-num { background: #2563eb; color: #fff; }
         .step.done .step-num { background: #16a34a; color: #fff; }
-        .step-arrow { color: #ccc; }
+        .step-arrow { color: #ccc; font-size: 12px; }
 
         /* Cards */
         .card {
             background: #fff;
-            border-radius: 10px;
+            border-radius: 12px;
             border: 1px solid #e0e0e0;
-            padding: 24px;
-            margin-bottom: 16px;
+            padding: 20px 16px;
+            margin-bottom: 12px;
         }
         .card h2 {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 12px;
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 14px;
         }
 
         /* Property info form */
         .form-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            grid-template-columns: 1fr;
+            gap: 14px;
         }
-        .form-grid .full-width { grid-column: 1 / -1; }
         .form-group label {
             display: block;
-            font-size: 13px;
-            font-weight: 500;
-            color: #555;
-            margin-bottom: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 6px;
         }
         .form-group input, .form-group select {
             width: 100%;
-            padding: 10px 12px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 14px;
+            padding: 14px 14px;
+            border: 1.5px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 16px;
             outline: none;
             transition: border-color 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #fff;
+        }
+        .form-group select {
+            background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E") no-repeat right 14px center;
+            padding-right: 36px;
         }
         .form-group input:focus, .form-group select:focus {
             border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
         }
 
         /* Room upload section */
-        .room-list { display: flex; flex-direction: column; gap: 12px; }
+        .room-list { display: flex; flex-direction: column; gap: 14px; }
         .room-item {
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 16px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 14px;
             background: #fafafa;
         }
         .room-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
         .room-name-input {
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 16px;
+            font-weight: 700;
             border: none;
             background: transparent;
             outline: none;
             color: #1a1a2e;
-            width: 60%;
+            width: 65%;
         }
         .room-name-input::placeholder { color: #aaa; }
         .remove-room {
@@ -165,21 +161,25 @@
             border: none;
             color: #dc2626;
             cursor: pointer;
-            font-size: 13px;
-            padding: 4px 8px;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 8px 12px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
         }
-        .remove-room:hover { text-decoration: underline; }
 
-        /* Photo upload area */
+        /* Photo upload area — BIG tap target for mobile */
         .photo-upload-area {
-            border: 2px dashed #d1d5db;
-            border-radius: 8px;
-            padding: 20px;
+            border: 2.5px dashed #c0c8d4;
+            border-radius: 12px;
+            padding: 28px 16px;
             text-align: center;
             cursor: pointer;
             transition: border-color 0.2s, background 0.2s;
+            min-height: 100px;
         }
-        .photo-upload-area:hover {
+        .photo-upload-area:active {
             border-color: #2563eb;
             background: #f0f4ff;
         }
@@ -187,90 +187,95 @@
             border-style: solid;
             border-color: #16a34a;
             background: #f0fdf4;
+            padding: 20px 16px;
         }
-        .photo-upload-icon { font-size: 28px; margin-bottom: 4px; }
-        .photo-upload-text { font-size: 13px; color: #666; }
-        .photo-upload-hint { font-size: 11px; color: #999; margin-top: 4px; }
+        .photo-upload-icon { font-size: 36px; margin-bottom: 6px; }
+        .photo-upload-text { font-size: 15px; font-weight: 600; color: #444; }
+        .photo-upload-hint { font-size: 12px; color: #999; margin-top: 4px; }
 
         /* Photo thumbnails */
         .photo-thumbs {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            margin-top: 10px;
+            margin-top: 12px;
         }
         .photo-thumb {
-            width: 70px;
-            height: 70px;
-            border-radius: 6px;
+            width: 72px;
+            height: 72px;
+            border-radius: 8px;
             object-fit: cover;
-            border: 1px solid #e0e0e0;
+            border: 2px solid #e0e0e0;
         }
 
         /* Add room button */
         .add-room-btn {
             width: 100%;
-            padding: 12px;
-            border: 2px dashed #d1d5db;
-            border-radius: 8px;
+            padding: 16px;
+            border: 2.5px dashed #d1d5db;
+            border-radius: 12px;
             background: transparent;
             color: #666;
-            font-size: 14px;
+            font-size: 15px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            min-height: 52px;
         }
-        .add-room-btn:hover {
+        .add-room-btn:active {
             border-color: #2563eb;
             color: #2563eb;
+            background: #f0f4ff;
         }
 
-        /* Buttons */
+        /* Buttons — big touch targets */
         .btn-primary {
             width: 100%;
-            padding: 14px;
+            padding: 16px;
             background: #2563eb;
             color: #fff;
             border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
+            border-radius: 12px;
+            font-size: 17px;
+            font-weight: 700;
             cursor: pointer;
-            transition: background 0.2s;
+            min-height: 52px;
+            transition: background 0.15s;
         }
-        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:active { background: #1d4ed8; }
         .btn-primary:disabled {
             background: #93c5fd;
             cursor: not-allowed;
         }
         .btn-secondary {
             width: 100%;
-            padding: 12px;
+            padding: 14px;
             background: #fff;
             color: #2563eb;
             border: 2px solid #2563eb;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
             cursor: pointer;
+            min-height: 52px;
         }
-        .btn-secondary:hover { background: #f0f4ff; }
+        .btn-secondary:active { background: #f0f4ff; }
 
         /* Results */
         .result-room {
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 12px;
             padding: 16px;
             margin-bottom: 12px;
             background: #fafafa;
         }
         .result-room h3 {
-            font-size: 15px;
-            font-weight: 600;
-            margin-bottom: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
             color: #1a1a2e;
         }
         .result-room p {
-            font-size: 13px;
+            font-size: 14px;
             color: #444;
             line-height: 1.7;
         }
@@ -278,56 +283,57 @@
         /* Loading */
         .loading {
             text-align: center;
-            padding: 40px;
+            padding: 60px 20px;
         }
         .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid #e5e7eb;
-            border-top: 3px solid #2563eb;
+            width: 48px;
+            height: 48px;
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #2563eb;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
-            margin: 0 auto 12px;
+            margin: 0 auto 16px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-text { color: #666; font-size: 14px; }
+        .loading-text { color: #555; font-size: 16px; font-weight: 600; }
 
         /* Pricing banner */
         .pricing-banner {
             background: linear-gradient(135deg, #1a1a2e, #2563eb);
             color: #fff;
-            border-radius: 10px;
-            padding: 24px;
+            border-radius: 14px;
+            padding: 24px 16px;
             text-align: center;
-            margin: 16px 0;
+            margin: 12px 0;
         }
-        .pricing-banner h3 { font-size: 18px; margin-bottom: 8px; }
-        .pricing-banner p { font-size: 14px; opacity: 0.9; margin-bottom: 16px; }
+        .pricing-banner h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+        .pricing-banner p { font-size: 14px; opacity: 0.9; margin-bottom: 20px; }
         .pricing-options {
             display: flex;
-            gap: 12px;
-            justify-content: center;
-            flex-wrap: wrap;
+            flex-direction: column;
+            gap: 10px;
+            align-items: stretch;
         }
         .pricing-option {
             background: rgba(255,255,255,0.15);
-            border: 1px solid rgba(255,255,255,0.3);
-            border-radius: 8px;
-            padding: 16px 20px;
+            border: 1.5px solid rgba(255,255,255,0.3);
+            border-radius: 12px;
+            padding: 16px;
             cursor: pointer;
-            transition: all 0.2s;
-            min-width: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 52px;
         }
-        .pricing-option:hover {
-            background: rgba(255,255,255,0.25);
-            transform: translateY(-2px);
+        .pricing-option:active {
+            background: rgba(255,255,255,0.3);
         }
         .pricing-option .price {
-            font-size: 24px;
+            font-size: 22px;
             font-weight: 700;
         }
         .pricing-option .label {
-            font-size: 13px;
+            font-size: 14px;
             opacity: 0.85;
         }
 
@@ -335,11 +341,12 @@
         .trial-badge {
             background: #fef3c7;
             color: #92400e;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 13px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
             text-align: center;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
         }
 
         /* Past reports */
@@ -347,30 +354,118 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 16px;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            margin-bottom: 8px;
+            padding: 14px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            margin-bottom: 10px;
             background: #fff;
+            gap: 10px;
         }
-        .past-report-info { font-size: 14px; }
+        .past-report-info {
+            font-size: 14px;
+            font-weight: 600;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .past-report-date { font-size: 12px; color: #888; }
+        .past-report-btns {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
         .past-report-btn {
             background: #2563eb;
             color: #fff;
             border: none;
-            padding: 6px 14px;
-            border-radius: 6px;
+            padding: 10px 14px;
+            border-radius: 8px;
             font-size: 13px;
+            font-weight: 600;
             cursor: pointer;
+            min-height: 40px;
         }
 
-        /* Responsive */
-        @media (max-width: 600px) {
-            .form-grid { grid-template-columns: 1fr; }
-            .container { padding: 12px; }
-            .hero h1 { font-size: 20px; }
-            .pricing-options { flex-direction: column; align-items: center; }
+        /* Action buttons row */
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .action-buttons .btn-primary { flex: 1; }
+
+        /* Nav buttons row */
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .nav-buttons .btn-secondary { flex: 1; }
+        .nav-buttons .btn-primary { flex: 2; }
+
+        /* Email modal — mobile optimized */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 200;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .modal-content {
+            background: #fff;
+            border-radius: 20px 20px 0 0;
+            padding: 24px 20px;
+            padding-bottom: calc(24px + env(safe-area-inset-bottom, 0));
+            width: 100%;
+            max-width: 500px;
+            animation: slideUp 0.25s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .modal-content h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .modal-content p {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 16px;
+        }
+        .modal-content input[type="email"] {
+            width: 100%;
+            padding: 14px;
+            border: 1.5px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 16px;
+            outline: none;
+            margin-bottom: 14px;
+        }
+        .modal-content input[type="email"]:focus {
+            border-color: #16a34a;
+            box-shadow: 0 0 0 3px rgba(22,163,74,0.1);
+        }
+
+        /* Desktop overrides — only for wider screens */
+        @media (min-width: 601px) {
+            .container { padding: 20px; }
+            .card { padding: 24px; }
+            .form-grid { grid-template-columns: 1fr 1fr; }
+            .form-grid .full-width { grid-column: 1 / -1; }
+            .pricing-options { flex-direction: row; justify-content: center; }
+            .pricing-option { min-width: 160px; flex-direction: column; text-align: center; }
+            .modal-overlay { align-items: center; }
+            .modal-content {
+                border-radius: 16px;
+                max-width: 420px;
+                padding-bottom: 24px;
+            }
         }
 
         /* Hide sections */
@@ -381,9 +476,7 @@
 
 <div class="header">
     <div class="logo">Rent<span>Ready</span> AI</div>
-    <div class="header-right">
-        <span class="user-status" id="user-status"></span>
-    </div>
+    <span class="user-status" id="user-status"></span>
 </div>
 
 <div class="container">
@@ -411,7 +504,7 @@
         <div class="form-grid">
             <div class="form-group full-width">
                 <label for="address">Property Address *</label>
-                <input type="text" id="address" placeholder="123 Main St, Apt 4B, City, State, ZIP">
+                <input type="text" id="address" placeholder="123 Main St, City, State ZIP" autocomplete="street-address">
             </div>
             <div class="form-group">
                 <label for="unit">Unit / Apt #</label>
@@ -427,14 +520,14 @@
             </div>
             <div class="form-group">
                 <label for="tenant-name">Tenant Name</label>
-                <input type="text" id="tenant-name" placeholder="Jane Smith">
+                <input type="text" id="tenant-name" placeholder="Jane Smith" autocomplete="off">
             </div>
             <div class="form-group">
-                <label for="landlord-name">Landlord / Manager Name</label>
-                <input type="text" id="landlord-name" placeholder="John Doe">
+                <label for="landlord-name">Landlord / Manager</label>
+                <input type="text" id="landlord-name" placeholder="John Doe" autocomplete="off">
             </div>
         </div>
-        <div style="margin-top: 16px;">
+        <div style="margin-top: 20px;">
             <button class="btn-primary" onclick="goToStep2()">Next: Add Room Photos</button>
         </div>
     </div>
@@ -443,7 +536,7 @@
     <div id="step2" class="hidden">
         <div class="card">
             <h2>Upload Room Photos</h2>
-            <p style="font-size:13px;color:#666;margin-bottom:16px;">Add each room and upload 1-3 photos per room. We'll analyze the condition automatically.</p>
+            <p style="font-size:14px;color:#666;margin-bottom:16px;">Tap each room to take or upload 1-3 photos. We'll analyze the condition with AI.</p>
 
             <div id="trial-badge-container"></div>
 
@@ -452,9 +545,9 @@
             <button class="add-room-btn" onclick="addRoom()">+ Add Room</button>
         </div>
 
-        <div style="display:flex;gap:12px;margin-top:8px;">
-            <button class="btn-secondary" onclick="goToStep1()" style="flex:1;">Back</button>
-            <button class="btn-primary" id="analyze-btn" onclick="analyzePhotos()" style="flex:2;" disabled>Generate Report</button>
+        <div class="nav-buttons">
+            <button class="btn-secondary" onclick="goToStep1()">Back</button>
+            <button class="btn-primary" id="analyze-btn" onclick="analyzePhotos()" disabled>Generate Report</button>
         </div>
     </div>
 
@@ -463,8 +556,8 @@
         <!-- Loading state -->
         <div id="loading-state" class="card loading">
             <div class="spinner"></div>
-            <div class="loading-text">Analyzing photos and generating your report...</div>
-            <p style="font-size:12px;color:#999;margin-top:8px;">This usually takes 15-30 seconds</p>
+            <div class="loading-text">Analyzing your photos...</div>
+            <p style="font-size:13px;color:#999;margin-top:10px;">This usually takes 15-30 seconds</p>
         </div>
 
         <!-- Results -->
@@ -474,31 +567,31 @@
                 <div id="results-rooms"></div>
             </div>
 
-            <div style="display:flex;gap:12px;">
-                <button class="btn-primary" onclick="downloadPDF()" id="download-btn" style="flex:1;">
+            <div class="action-buttons">
+                <button class="btn-primary" onclick="downloadPDF()" id="download-btn">
                     Download PDF
                 </button>
-                <button class="btn-primary" onclick="showEmailModal()" id="email-btn" style="flex:1;background:#16a34a;">
+                <button class="btn-primary" onclick="showEmailModal()" id="email-btn" style="background:#16a34a;">
                     Email Report
                 </button>
             </div>
 
-            <div id="upgrade-banner" class="hidden" style="margin-top:16px;">
+            <div id="upgrade-banner" class="hidden">
                 <div class="pricing-banner">
                     <h3>Need more reports?</h3>
-                    <p>Your free trial is used. Get unlimited reports with Pro.</p>
+                    <p>Your free trial is used. Upgrade for unlimited.</p>
                     <div class="pricing-options">
                         <div class="pricing-option" onclick="checkout('single')">
-                            <div class="price">$4.99</div>
                             <div class="label">Single Report</div>
+                            <div class="price">$4.99</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('pro')">
+                            <div class="label">Unlimited Monthly</div>
                             <div class="price">$29/mo</div>
-                            <div class="label">Unlimited Reports</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('annual')">
+                            <div class="label">Annual — Save $99</div>
                             <div class="price">$249/yr</div>
-                            <div class="label">Save $99/year</div>
                         </div>
                     </div>
                 </div>
@@ -510,20 +603,20 @@
         </div>
     </div>
 
-    <!-- Email Modal -->
-    <div id="email-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)closeEmailModal()">
-        <div style="background:#fff;border-radius:12px;padding:24px;max-width:420px;width:90%;margin:20px;">
-            <h3 style="font-size:16px;margin-bottom:12px;">Email Report</h3>
-            <p style="font-size:13px;color:#666;margin-bottom:16px;">Send the PDF report to an email address.</p>
-            <input type="email" id="email-input" placeholder="tenant@email.com" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;outline:none;margin-bottom:12px;">
+    <!-- Email Modal — slides up from bottom on mobile -->
+    <div id="email-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeEmailModal()">
+        <div class="modal-content">
+            <h3>Email Report</h3>
+            <p>Send the PDF report to an email address.</p>
+            <input type="email" id="email-input" placeholder="tenant@email.com" inputmode="email">
             <button class="btn-primary" onclick="sendEmail()" id="send-email-btn" style="background:#16a34a;">Send Report</button>
-            <button class="btn-secondary" onclick="closeEmailModal()" style="margin-top:8px;">Cancel</button>
-            <div id="email-status" style="font-size:13px;margin-top:8px;text-align:center;"></div>
+            <button class="btn-secondary" onclick="closeEmailModal()" style="margin-top:10px;">Cancel</button>
+            <div id="email-status" style="font-size:14px;margin-top:10px;text-align:center;"></div>
         </div>
     </div>
 
     <!-- Past Reports -->
-    <div id="past-reports-section" class="hidden" style="margin-top:24px;">
+    <div id="past-reports-section" class="hidden" style="margin-top:20px;">
         <div class="card">
             <h2>Your Past Reports</h2>
             <div id="past-reports-list"></div>
@@ -585,7 +678,6 @@ function updateStatusDisplay() {
     if (userStatus.is_pro) {
         el.textContent = 'Pro';
         el.style.color = '#2563eb';
-        el.style.fontWeight = '600';
     } else if (userStatus.reports_used === 0) {
         el.textContent = '1 free report';
         el.style.color = '#16a34a';
@@ -608,12 +700,12 @@ function showPastReports() {
     userStatus.reports.forEach(r => {
         list.innerHTML += `
             <div class="past-report">
-                <div>
+                <div style="min-width:0;flex:1;">
                     <div class="past-report-info">${r.address || 'Property Report'}</div>
                     <div class="past-report-date">${r.date}</div>
                 </div>
-                <div style="display:flex;gap:6px;">
-                    <button class="past-report-btn" onclick="downloadPastReport('${r.id}')">Download</button>
+                <div class="past-report-btns">
+                    <button class="past-report-btn" onclick="downloadPastReport('${r.id}')">PDF</button>
                     <button class="past-report-btn" onclick="showEmailModalForReport('${r.id}')" style="background:#16a34a;">Email</button>
                 </div>
             </div>`;
@@ -623,6 +715,7 @@ function showPastReports() {
 // --- Step Navigation ---
 function goToStep1() {
     showStep(1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function goToStep2() {
@@ -637,11 +730,12 @@ function goToStep2() {
     // Show trial badge if first report
     if (userStatus && userStatus.reports_used === 0) {
         document.getElementById('trial-badge-container').innerHTML =
-            '<div class="trial-badge">Free trial: 1 report, up to 3 rooms. No signup or credit card needed.</div>';
+            '<div class="trial-badge">Free trial: 1 report, up to 3 rooms. No signup needed.</div>';
     }
 
     showStep(2);
     updateAnalyzeBtn();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function showStep(n) {
@@ -694,7 +788,7 @@ function renderRooms() {
         const uploadClass = photoCount > 0 ? 'photo-upload-area has-photos' : 'photo-upload-area';
         const uploadText = photoCount > 0
             ? `${photoCount} photo${photoCount > 1 ? 's' : ''} added`
-            : 'Tap to add photos';
+            : 'Tap to take or upload photos';
 
         list.innerHTML += `
             <div class="room-item">
@@ -754,6 +848,7 @@ async function analyzePhotos() {
     showStep(3);
     document.getElementById('loading-state').classList.remove('hidden');
     document.getElementById('results-state').classList.add('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     try {
         // 1. Upload photos
@@ -837,9 +932,9 @@ async function analyzePhotos() {
 
     } catch (err) {
         document.getElementById('loading-state').innerHTML = `
-            <div style="color:#dc2626;font-size:15px;">
+            <div style="color:#dc2626;font-size:15px;padding:20px;">
                 Something went wrong: ${err.message}<br>
-                <button class="btn-secondary" onclick="goToStep2()" style="margin-top:12px;width:auto;padding:8px 20px;">
+                <button class="btn-secondary" onclick="goToStep2()" style="margin-top:16px;">
                     Try Again
                 </button>
             </div>`;
@@ -879,7 +974,7 @@ function showEmailModal() {
     document.getElementById('email-modal').classList.remove('hidden');
     document.getElementById('email-input').value = '';
     document.getElementById('email-status').textContent = '';
-    document.getElementById('email-input').focus();
+    setTimeout(() => document.getElementById('email-input').focus(), 300);
 }
 
 function closeEmailModal() {
@@ -892,7 +987,7 @@ function showEmailModalForReport(reportId) {
     document.getElementById('email-modal').classList.remove('hidden');
     document.getElementById('email-input').value = '';
     document.getElementById('email-status').textContent = '';
-    document.getElementById('email-input').focus();
+    setTimeout(() => document.getElementById('email-input').focus(), 300);
 }
 
 async function sendEmail() {
@@ -917,7 +1012,7 @@ async function sendEmail() {
             const err = await res.json();
             throw new Error(err.detail || 'Failed to send');
         }
-        document.getElementById('email-status').innerHTML = '<span style="color:#16a34a;">Report sent to ' + email + '</span>';
+        document.getElementById('email-status').innerHTML = '<span style="color:#16a34a;">Sent to ' + email + '</span>';
         setTimeout(closeEmailModal, 2000);
     } catch (err) {
         document.getElementById('email-status').innerHTML = '<span style="color:#dc2626;">' + err.message + '</span>';
