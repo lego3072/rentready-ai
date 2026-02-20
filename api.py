@@ -14,12 +14,13 @@ import time
 import logging
 import secrets
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
 import anthropic
+import bcrypt
 import httpx
 import stripe
 from dotenv import load_dotenv
@@ -41,6 +42,9 @@ from reportlab.platypus import (
     TableStyle,
     PageBreak,
 )
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
@@ -67,13 +71,27 @@ REPORT_DIR.mkdir(exist_ok=True)
 # --- PostgreSQL Database ---
 try:
     import psycopg2
+    import psycopg2.pool
     from psycopg2.extras import Json, RealDictCursor
     DATABASE_URL = os.environ.get("DATABASE_URL")
     POSTGRES_AVAILABLE = bool(DATABASE_URL)
 
     if POSTGRES_AVAILABLE:
+        # Connection pool: min 2, max 10 connections
+        _connection_pool = psycopg2.pool.ThreadedConnectionPool(
+            2, 10, DATABASE_URL
+        )
+
         def get_db_connection():
-            return psycopg2.connect(DATABASE_URL)
+            return _connection_pool.getconn()
+
+        def release_db_connection(conn):
+            """Return connection to pool instead of closing it."""
+            if conn:
+                try:
+                    _connection_pool.putconn(conn)
+                except Exception:
+                    pass
 
         def init_database():
             conn = None
@@ -137,6 +155,36 @@ try:
                     )
                 """)
 
+                # Account sessions: maps fingerprints to account emails (multi-device support)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS account_sessions (
+                        id SERIAL PRIMARY KEY,
+                        email VARCHAR(255) NOT NULL,
+                        fingerprint VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(email, fingerprint)
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_account_sessions_fp ON account_sessions(fingerprint)
+                """)
+
+                # Share tokens table (persistent share links)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS share_tokens (
+                        token VARCHAR(255) PRIMARY KEY,
+                        report_id VARCHAR(255) NOT NULL,
+                        fingerprint VARCHAR(255) NOT NULL,
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_share_tokens_expires ON share_tokens(expires_at)
+                """)
+
                 conn.commit()
                 cur.close()
                 logger.info("Database tables initialized successfully")
@@ -144,18 +192,37 @@ try:
                 logger.error(f"Database initialization error: {e}")
             finally:
                 if conn:
-                    conn.close()
+                    release_db_connection(conn)
 
         init_database()
 except ImportError:
     POSTGRES_AVAILABLE = False
     logger.warning("psycopg2 not available - using in-memory storage")
 
+    def release_db_connection(conn):
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 # --- In-memory fallback ---
 users_db: dict = {}
 reports_db: dict = {}
 
 app = FastAPI(title="Condition Report", version="1.0.0")
+
+# --- Rate Limiter ---
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please try again later."},
+    )
 
 
 @app.middleware("http")
@@ -167,6 +234,17 @@ async def https_redirect(request: Request, call_next):
         from starlette.responses import RedirectResponse
         return RedirectResponse(url, status_code=301)
     return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Add security headers to all responses."""
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 app.add_middleware(
@@ -227,7 +305,7 @@ def get_user(fingerprint: str) -> dict:
             logger.error(f"DB get_user error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
 
     # Fallback to in-memory
     if fingerprint not in users_db:
@@ -269,7 +347,7 @@ def get_user_reports(fingerprint: str) -> list:
             logger.error(f"DB get_user_reports error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
     return []
 
 
@@ -303,7 +381,7 @@ def save_report_to_db(report_data: dict, fingerprint: str):
             logger.error(f"DB save_report error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
 
 
 def get_report_from_db(report_id: str) -> dict | None:
@@ -331,7 +409,7 @@ def get_report_from_db(report_id: str) -> dict | None:
             logger.error(f"DB get_report error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
     return None
 
 
@@ -358,7 +436,7 @@ def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None
             logger.error(f"DB update_user_plan error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
 
 
 def add_single_report_purchase(fingerprint: str):
@@ -378,7 +456,7 @@ def add_single_report_purchase(fingerprint: str):
             logger.error(f"DB add_single_report error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
 
 
 def check_access(user: dict) -> dict:
@@ -435,41 +513,54 @@ def analyze_room_photos_sync(room_name: str, photos: list[bytes], report_type: s
 
     # Inspection-type-specific instructions
     type_instructions = {
-        "Move-In": """INSPECTION TYPE: MOVE-IN (Baseline Condition Assessment)
-PURPOSE: Document the property's condition BEFORE tenant occupancy. This is the legal baseline for security deposit disputes.
+        "Move-In": """INSPECTION TYPE: MOVE-IN (Baseline Documentation)
+PURPOSE: Document the property's current condition as a baseline record before tenant occupancy.
+TONE: Neutral and balanced — this is a documentation tool, not a critique. Most lived-in properties will have minor cosmetic wear, and that is NORMAL and expected.
 FOCUS AREAS:
-- Is this room MOVE-IN READY? Flag anything that isn't (uncleaned, damaged, incomplete repairs)
-- Document existing defects clearly — this protects both landlord and tenant
-- Note items that are new, recently cleaned/painted, or freshly maintained as POSITIVES
-- Check for safety/compliance: smoke detectors, proper locks, no exposed wiring, no mold
-- Identify any maintenance needed BEFORE the tenant moves in""",
-        "Move-Out": """INSPECTION TYPE: MOVE-OUT (Damage Assessment)
-PURPOSE: Identify damage BEYOND NORMAL WEAR AND TEAR for security deposit evaluation.
+- Document what you see factually — don't dramatize or exaggerate
+- Note positives first (clean, functional, good condition items) then any concerns
+- Minor cosmetic wear (small scuffs, light marks, normal aging) is EXPECTED and should still rate "Good"
+- Only flag items as "Fair" if they clearly need attention (not just minor imperfections)
+- Only flag items as "Poor" if there is obvious damage, safety hazards, or non-functional components
+- Personal items, stored belongings, or clutter are NOT defects — ignore them""",
+        "Move-Out": """INSPECTION TYPE: MOVE-OUT (Condition Documentation)
+PURPOSE: Document the property's current condition for comparison against move-in records.
+TONE: Neutral and fair — distinguish between normal wear and actual damage. Most wear is expected over a tenancy.
 FOCUS AREAS:
-- DISTINGUISH between normal wear (faded paint, minor scuffs, carpet wear paths near doors) vs TENANT DAMAGE (holes, stains, burns, broken items, unauthorized modifications)
-- Flag cleaning issues: grease buildup, grime, mold, debris left behind
-- Note anything requiring repair/replacement before next tenant
-- Compare to what a reasonable move-in condition would look like
-- Check for removed fixtures, missing items, or unauthorized alterations""",
+- NORMAL WEAR (rate "Good"): faded paint, minor scuffs, light carpet wear near doors, small nail holes, minor marks
+- MINOR ISSUES (rate "Fair"): noticeable stains, moderate scuffs, items needing cleaning, cosmetic repairs
+- ACTUAL DAMAGE (rate "Poor"): holes in walls, broken fixtures, burns, water damage, missing items, unauthorized modifications
+- Note cleaning needs factually without being harsh
+- Compare to what a reasonable lived-in condition looks like""",
         "Periodic": """INSPECTION TYPE: PERIODIC / ROUTINE INSPECTION
-PURPOSE: Identify maintenance issues, safety hazards, and lease compliance during tenancy.
+PURPOSE: Quick check on maintenance needs and safety items during tenancy.
+TONE: Helpful and practical — focus on actionable maintenance items, not cosmetic opinions.
 FOCUS AREAS:
-- SAFETY HAZARDS: smoke/CO detectors working, water leaks, mold/mildew, electrical issues, trip hazards
-- MAINTENANCE NEEDS: caulking, weatherstripping, HVAC filters, plumbing drips, pest signs
-- LEASE COMPLIANCE: unauthorized modifications, unauthorized pets, hoarding, blocked exits
-- PREVENTIVE: catch small issues before they become costly repairs
-- Note tenant-maintained areas: cleanliness, care of fixtures/appliances""",
+- SAFETY: smoke/CO detectors, water leaks, mold/mildew, electrical issues
+- MAINTENANCE: plumbing drips, caulking, weatherstripping, HVAC filters, pest signs
+- Note overall condition positively where warranted
+- Only flag items that genuinely need landlord attention""",
     }
 
     type_ctx = type_instructions.get(report_type, type_instructions["Move-In"])
 
     content.append({
         "type": "text",
-        "text": f"""You are a certified property inspector documenting this "{room_name}" for a legal condition report.
+        "text": f"""You are a property condition documentation assistant helping a landlord record the state of this "{room_name}".
 
 {type_ctx}
 
-A condition report is a REPORT CARD for the property. It documents defects, maintenance needs, compliance issues, and safety concerns with photo evidence.
+CRITICAL RULES:
+- ONLY describe what you can ACTUALLY SEE in the photo. Do NOT assume, guess, or invent details.
+- Do NOT fabricate descriptions like "window above sink" if there is no sink visible. Every detail must be verifiable from the photo.
+- If an item is not visible or you can't assess it from the photo, still include it but rate it "N/A" with notes "Not visible in photo". This keeps the report complete.
+
+TONE GUIDANCE:
+- Be BALANCED and FAIR. Most properties are in acceptable condition with normal wear.
+- Lead with positives. Note what's in good shape before mentioning concerns.
+- Don't be an alarmist — minor imperfections are normal in any lived-in space.
+- Personal items, clutter, or stored belongings are NOT property defects.
+- When in doubt, rate "Good" — only downgrade when clearly warranted by visible evidence.
 
 Analyze the photo(s) and return a JSON object with this EXACT structure:
 {{
@@ -481,26 +572,30 @@ Analyze the photo(s) and return a JSON object with this EXACT structure:
       "notes": "Brief specific description"
     }}
   ],
-  "summary": "2 sentence overview: what stands out most (positive or negative), and the key takeaway for the landlord/tenant.",
-  "flags": ["Specific actionable issues requiring attention — empty array if none"]
+  "summary": "2 sentence overview: start with the overall condition positively, then note any items worth attention if applicable.",
+  "flags": ["Only genuine issues requiring action — empty array if none. Do NOT flag minor cosmetic wear."]
 }}
 
-CHECKLIST (assess only what's visible, skip others):
+CHECKLIST — include ALL items below. If visible, describe what you see. If not visible, rate "N/A" with "Not visible in photo":
 - Walls (paint condition, holes, marks, cracks, water damage)
 - Ceiling (stains, cracks, peeling, discoloration)
 - Flooring (type, wear, stains, scratches, damage)
 - Windows (glass, frames, locks, screens, seals)
 - Doors (condition, hardware, locks, hinges)
 - Lighting/Electrical (fixtures, outlets, switches, covers)
-- Cleanliness (dust, grime, residue, debris)
+- Cleanliness (general tidiness — don't penalize for personal items)
 - Fixtures & Appliances (faucets, cabinets, countertops, appliances)
 
-RATINGS:
-- Good = Clean, functional, no damage, acceptable condition
-- Fair = Minor cosmetic wear, functional but needs attention
-- Poor = Significant damage, repair/replacement needed, safety concern
+RATING GUIDELINES (default to "Good" unless clearly not):
+- Good = Functional, acceptable condition, normal wear. This is the DEFAULT for most items.
+- Fair = Notable cosmetic issues or maintenance items that should be addressed
+- Poor = Obvious damage, broken/non-functional components, or safety hazards
 
-Be SPECIFIC about locations ("left wall near window" not just "walls"). Note BOTH positives and negatives.
+OVERALL RATING: If most items are "Good", the overall rating should be "Good" even if 1-2 items are "Fair".
+
+Be specific about locations ("left wall near window" not just "walls"). Emphasize positives alongside any concerns.
+
+FINAL CHECK: Before returning, verify EVERY description references something ACTUALLY VISIBLE in the photo. If you described something not in the photo, change its rating to "N/A" and notes to "Not visible in photo". Zero filler, zero guessing.
 
 Return ONLY valid JSON. No markdown, no code fences.""",
     })
@@ -940,6 +1035,7 @@ async def user_status(request: Request, x_fingerprint: Optional[str] = Header(No
 
 
 @app.post("/api/upload-photos")
+@limiter.limit("20/minute")
 async def upload_photos(
     request: Request,
     photos: list[UploadFile] = File(...),
@@ -1000,6 +1096,7 @@ async def upload_photos(
 
 
 @app.post("/api/analyze")
+@limiter.limit("10/minute")
 async def analyze_report(
     request: Request,
     x_fingerprint: Optional[str] = Header(None),
@@ -1184,6 +1281,7 @@ async def get_report(report_id: str, request: Request, x_fingerprint: Optional[s
 # --- Stripe Checkout ---
 
 @app.post("/api/checkout/single")
+@limiter.limit("10/minute")
 async def checkout_single(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create Stripe checkout for a single report."""
     fp = get_fingerprint(request, x_fingerprint)
@@ -1195,15 +1293,142 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
         payment_method_types=["card"],
         line_items=[{"price": STRIPE_PRICE_SINGLE, "quantity": 1}],
         mode="payment",
-        success_url=f"{BASE_URL}?payment=success&type=single",
+        success_url=f"{BASE_URL}?payment=success&type=single&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}?payment=cancelled",
         metadata={"fingerprint": fp, "type": "single"},
     )
     return {"checkout_url": session.url}
 
 
+@app.post("/api/verify-payment")
+@limiter.limit("10/minute")
+async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Verify a Stripe checkout session and credit user immediately (no webhook wait)."""
+    fp = get_fingerprint(request, x_fingerprint)
+    body = await request.json()
+    session_id = body.get("session_id", "")
+
+    if not session_id:
+        raise HTTPException(400, "Missing session_id")
+
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+    except Exception as e:
+        logger.error(f"Stripe session retrieve error: {e}")
+        raise HTTPException(400, "Invalid session")
+
+    if session.payment_status != "paid":
+        return {"verified": False, "reason": "Payment not completed"}
+
+    # Verify fingerprint matches
+    meta_fp = session.metadata.get("fingerprint", "")
+    if meta_fp != fp:
+        raise HTTPException(403, "Session does not belong to this user")
+
+    purchase_type = session.metadata.get("type", "")
+
+    if purchase_type == "single":
+        # Check if already credited (idempotent)
+        user = get_user(fp)
+        # Use session ID tracking to prevent double-credit
+        already_credited = False
+        if POSTGRES_AVAILABLE:
+            conn = None
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("SELECT 1 FROM users WHERE fingerprint = %s AND single_reports_purchased > %s",
+                            (fp, max(0, user["reports_used"] - 1)))
+                already_credited = cur.fetchone() is not None
+                cur.close()
+            except Exception:
+                pass
+            finally:
+                if conn:
+                    release_db_connection(conn)
+
+        if not already_credited:
+            add_single_report_purchase(fp)
+            if fp in users_db:
+                users_db[fp]["single_reports_purchased"] += 1
+
+    elif purchase_type == "pro":
+        customer_id = session.get("customer", "") or ""
+        update_user_plan(fp, "pro", customer_id)
+        if fp in users_db:
+            users_db[fp]["is_pro"] = True
+            users_db[fp]["plan"] = "pro"
+            users_db[fp]["stripe_customer_id"] = customer_id
+
+    return {"verified": True, "type": purchase_type}
+
+
 # --- Share link for texting/sharing ---
-share_tokens = {}  # token -> {report_id, fingerprint, expires}
+share_tokens_mem = {}  # in-memory fallback only
+
+
+def save_share_token(token: str, report_id: str, fingerprint: str, expires_at: datetime):
+    """Save share token to PostgreSQL (with in-memory fallback)."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO share_tokens (token, report_id, fingerprint, expires_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (token) DO UPDATE SET expires_at = EXCLUDED.expires_at
+            """, (token, report_id, fingerprint, expires_at))
+            conn.commit()
+            cur.close()
+            return
+        except Exception as e:
+            logger.error(f"DB save share token error: {e}")
+        finally:
+            if conn:
+                release_db_connection(conn)
+    # Fallback to in-memory
+    share_tokens_mem[token] = {"report_id": report_id, "fingerprint": fingerprint, "expires": expires_at.timestamp()}
+
+
+def get_share_token(token: str) -> Optional[dict]:
+    """Get share token from PostgreSQL (with in-memory fallback)."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("SELECT * FROM share_tokens WHERE token = %s", (token,))
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                return {"report_id": row["report_id"], "fingerprint": row["fingerprint"], "expires": row["expires_at"].timestamp()}
+            return None
+        except Exception as e:
+            logger.error(f"DB get share token error: {e}")
+        finally:
+            if conn:
+                release_db_connection(conn)
+    return share_tokens_mem.get(token)
+
+
+def delete_share_token(token: str):
+    """Delete expired share token."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM share_tokens WHERE token = %s", (token,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.error(f"DB delete share token error: {e}")
+        finally:
+            if conn:
+                release_db_connection(conn)
+    share_tokens_mem.pop(token, None)
+
 
 @app.post("/api/report/{report_id}/share")
 async def create_share_link(report_id: str, request: Request, x_fingerprint: Optional[str] = Header(None)):
@@ -1216,13 +1441,11 @@ async def create_share_link(report_id: str, request: Request, x_fingerprint: Opt
     if report["fingerprint"] != fp:
         raise HTTPException(403, "Not your report")
 
-    # Generate token
+    # Generate token and persist to DB
     token = secrets.token_urlsafe(16)
-    share_tokens[token] = {
-        "report_id": report_id,
-        "fingerprint": fp,
-        "expires": time.time() + (7 * 24 * 3600),  # 7 days
-    }
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    save_share_token(token, report_id, fp, expires_at)
+
     share_url = f"{BASE_URL}/share/{token}"
     return {"share_url": share_url, "expires_in": "7 days"}
 
@@ -1230,11 +1453,11 @@ async def create_share_link(report_id: str, request: Request, x_fingerprint: Opt
 @app.get("/share/{token}")
 async def download_shared_report(token: str):
     """Download a shared report PDF via token (no auth needed)."""
-    share = share_tokens.get(token)
+    share = get_share_token(token)
     if not share:
         return HTMLResponse("<h2>Link expired or invalid.</h2><p><a href='/'>Go to Condition Report</a></p>", status_code=404)
     if time.time() > share["expires"]:
-        del share_tokens[token]
+        delete_share_token(token)
         return HTMLResponse("<h2>This link has expired.</h2><p><a href='/'>Generate a new report</a></p>", status_code=410)
 
     report_id = share["report_id"]
@@ -1254,6 +1477,7 @@ async def download_shared_report(token: str):
 
 
 @app.post("/api/checkout/pro")
+@limiter.limit("10/minute")
 async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create Stripe checkout for Pro subscription."""
     fp = get_fingerprint(request, x_fingerprint)
@@ -1268,7 +1492,7 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
         payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
-        success_url=f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}",
+        success_url=f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}?payment=cancelled",
         metadata={"fingerprint": fp, "type": "pro"},
     )
@@ -1276,6 +1500,7 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
 
 
 @app.post("/api/email-report")
+@limiter.limit("10/minute")
 async def email_report(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Email a PDF report to the specified address."""
     fp = get_fingerprint(request, x_fingerprint)
@@ -1406,7 +1631,7 @@ async def stripe_webhook(request: Request):
                 logger.error(f"DB subscription cancel error: {e}")
             finally:
                 if conn:
-                    conn.close()
+                    release_db_connection(conn)
         # In-memory fallback
         for fp_key, user in users_db.items():
             if user.get("stripe_customer_id") == customer_id:
@@ -1420,6 +1645,7 @@ async def stripe_webhook(request: Request):
 # --- Account Signup / Login ---
 
 @app.post("/api/account/signup")
+@limiter.limit("5/minute")
 async def account_signup(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create account with email + password. Links fingerprint to email."""
     body = await request.json()
@@ -1445,8 +1671,8 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
             if cur.fetchone():
                 raise HTTPException(409, "An account with this email already exists. Try logging in.")
 
-            # Hash password
-            pw_hash = hashlib.sha256((password + "cr_salt_2026").encode()).hexdigest()
+            # Hash password with bcrypt (per-user salt, slow hash)
+            pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
             # Check if this fingerprint has an existing user row (to preserve purchase history)
             cur.execute("SELECT plan, reports_used, single_reports_purchased, stripe_customer_id FROM users WHERE fingerprint = %s", (fp,))
@@ -1481,6 +1707,12 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
                 WHERE fingerprint = %s
             """, (email, plan, stripe_cid, fp))
 
+            # Multi-device session tracking
+            cur.execute("""
+                INSERT INTO account_sessions (email, fingerprint) VALUES (%s, %s)
+                ON CONFLICT (email, fingerprint) DO NOTHING
+            """, (email, fp))
+
             conn.commit()
             cur.close()
 
@@ -1492,12 +1724,13 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
             raise HTTPException(500, "Signup failed")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
     else:
         raise HTTPException(503, "Database not available")
 
 
 @app.post("/api/account/login")
+@limiter.limit("5/minute")
 async def account_login(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Login with email + password. Returns account info and links fingerprint."""
     body = await request.json()
@@ -1515,12 +1748,26 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
             conn = get_db_connection()
             cur = conn.cursor(cursor_factory=RealDictCursor)
 
-            pw_hash = hashlib.sha256((password + "cr_salt_2026").encode()).hexdigest()
-            cur.execute("SELECT * FROM accounts WHERE email = %s AND password_hash = %s", (email, pw_hash))
+            cur.execute("SELECT * FROM accounts WHERE email = %s", (email,))
             account = cur.fetchone()
 
             if not account:
                 raise HTTPException(401, "Invalid email or password")
+
+            # Verify password with bcrypt (supports legacy SHA-256 migration)
+            stored_hash = account["password_hash"]
+            if stored_hash.startswith("$2"):
+                # bcrypt hash
+                if not bcrypt.checkpw(password.encode(), stored_hash.encode()):
+                    raise HTTPException(401, "Invalid email or password")
+            else:
+                # Legacy SHA-256 hash — verify then upgrade to bcrypt
+                legacy_hash = hashlib.sha256((password + "cr_salt_2026").encode()).hexdigest()
+                if stored_hash != legacy_hash:
+                    raise HTTPException(401, "Invalid email or password")
+                # Upgrade to bcrypt on successful login
+                new_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+                cur.execute("UPDATE accounts SET password_hash = %s WHERE email = %s", (new_hash, email))
 
             plan = account["plan"] or "free"
 
@@ -1547,8 +1794,14 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
                     updated_at = CURRENT_TIMESTAMP
             """, (fp, email, plan))
 
-            # Also link fingerprint to account
+            # Also link fingerprint to account (keeps latest for quick lookup)
             cur.execute("UPDATE accounts SET fingerprint = %s, updated_at = CURRENT_TIMESTAMP WHERE email = %s", (fp, email))
+
+            # Multi-device session tracking
+            cur.execute("""
+                INSERT INTO account_sessions (email, fingerprint) VALUES (%s, %s)
+                ON CONFLICT (email, fingerprint) DO NOTHING
+            """, (email, fp))
 
             conn.commit()
             cur.close()
@@ -1567,7 +1820,7 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
             raise HTTPException(500, "Login failed")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
     else:
         raise HTTPException(503, "Database not available")
 
@@ -1583,7 +1836,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
             conn = get_db_connection()
             cur = conn.cursor(cursor_factory=RealDictCursor)
 
-            # Find account linked to this fingerprint
+            # Find account linked to this fingerprint (direct match first, then session table)
             cur.execute("""
                 SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id
                 FROM accounts a WHERE a.fingerprint = %s
@@ -1591,10 +1844,25 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
             account = cur.fetchone()
 
             if not account:
+                # Multi-device fallback: check session table
+                cur.execute("""
+                    SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id
+                    FROM account_sessions s
+                    JOIN accounts a ON a.email = s.email
+                    WHERE s.fingerprint = %s
+                    ORDER BY s.created_at DESC LIMIT 1
+                """, (fp,))
+                account = cur.fetchone()
+
+            if not account:
                 return {"logged_in": False}
 
-            # Get report count
-            cur.execute("SELECT COUNT(*) as count FROM reports WHERE fingerprint = %s", (fp,))
+            # Get report count across all devices for this account
+            cur.execute("""
+                SELECT COUNT(*) as count FROM reports
+                WHERE fingerprint IN (SELECT fingerprint FROM account_sessions WHERE email = %s)
+                   OR fingerprint = %s
+            """, (account["email"], fp))
             report_count = cur.fetchone()["count"]
 
             # Get user purchase data
@@ -1619,7 +1887,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
             logger.error(f"Profile error: {e}")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
 
     return {"logged_in": False}
 
@@ -1647,180 +1915,9 @@ async def account_update(request: Request, x_fingerprint: Optional[str] = Header
             raise HTTPException(500, "Update failed")
         finally:
             if conn:
-                conn.close()
+                release_db_connection(conn)
 
     raise HTTPException(503, "Database not available")
-
-
-# --- Test endpoint: Send 5 sample reports (REMOVE AFTER TESTING) ---
-TEST_REPORTS = [
-    {
-        "address": "123 Oak Avenue, Apt 4B", "tenant": "Sarah Johnson", "landlord": "Riverside Properties LLC",
-        "report_type": "Move-In", "condition": "Excellent",
-        "rooms": [
-            {"name": "Living Room", "overall_rating": "Good", "summary": "Freshly painted walls, clean hardwood floors, all windows functional.", "items": [
-                {"name": "Walls", "rating": "Good", "notes": "Freshly painted, no marks"}, {"name": "Flooring", "rating": "Good", "notes": "Hardwood, recently refinished"},
-                {"name": "Windows", "rating": "Good", "notes": "Double-pane, no cracks"}, {"name": "Lighting", "rating": "Good", "notes": "Ceiling fan functional"}], "flags": []},
-            {"name": "Kitchen", "overall_rating": "Good", "summary": "Recently renovated with new countertops and appliances.", "items": [
-                {"name": "Countertops", "rating": "Good", "notes": "Granite, no chips"}, {"name": "Appliances", "rating": "Good", "notes": "Stainless steel, like-new"},
-                {"name": "Cabinets", "rating": "Good", "notes": "Soft-close, no damage"}, {"name": "Sink", "rating": "Good", "notes": "No leaks"}], "flags": []},
-        ],
-    },
-    {
-        "address": "456 Maple Street, Unit 12", "tenant": "Michael Chen", "landlord": "Greenfield Management",
-        "report_type": "Move-In", "condition": "Good",
-        "rooms": [
-            {"name": "Living Room", "overall_rating": "Good", "summary": "Good condition with minor scuffs on baseboards.", "items": [
-                {"name": "Walls", "rating": "Good", "notes": "Minor nail hole above fireplace"}, {"name": "Flooring", "rating": "Good", "notes": "Carpet, light wear at entrance"},
-                {"name": "Windows", "rating": "Good", "notes": "One screen has small tear"}, {"name": "Baseboards", "rating": "Fair", "notes": "Several scuff marks"}], "flags": ["Screen tear on east window"]},
-            {"name": "Kitchen", "overall_rating": "Good", "summary": "Clean and functional. Grout needs re-sealing.", "items": [
-                {"name": "Countertops", "rating": "Good", "notes": "Laminate, minor edge wear"}, {"name": "Appliances", "rating": "Good", "notes": "All working"},
-                {"name": "Cabinets", "rating": "Good", "notes": "One hinge loose"}, {"name": "Floor Tile", "rating": "Fair", "notes": "Grout darkening"}], "flags": ["Grout needs re-sealing"]},
-        ],
-    },
-    {
-        "address": "789 Pine Blvd, Suite 3", "tenant": "Jessica Martinez", "landlord": "Summit Realty Group",
-        "report_type": "Move-Out", "condition": "Fair",
-        "rooms": [
-            {"name": "Living Room", "overall_rating": "Fair", "summary": "Normal wear from 2-year tenancy. Wall marks, carpet traffic patterns.", "items": [
-                {"name": "Walls", "rating": "Fair", "notes": "Multiple nail holes, scuffs near doorway"}, {"name": "Flooring", "rating": "Fair", "notes": "Carpet traffic patterns, two small stains"},
-                {"name": "Windows", "rating": "Good", "notes": "Functional, clean"}, {"name": "Lighting", "rating": "Fair", "notes": "One bulb out in ceiling fan"}], "flags": ["Wall touch-up needed", "Carpet may need professional cleaning"]},
-            {"name": "Kitchen", "overall_rating": "Fair", "summary": "Moderate wear. Scratched countertops. Stovetop residue.", "items": [
-                {"name": "Countertops", "rating": "Fair", "notes": "Surface scratches, minor staining"}, {"name": "Appliances", "rating": "Fair", "notes": "Stovetop baked-on residue"},
-                {"name": "Cabinets", "rating": "Fair", "notes": "Handle wear, one drawer sticks"}, {"name": "Sink", "rating": "Fair", "notes": "Slow drain"}], "flags": ["Stovetop needs deep cleaning", "Slow drain needs snaking"]},
-        ],
-    },
-    {
-        "address": "321 Elm Court, Apt 7A", "tenant": "Robert Williams", "landlord": "Harbor Point Properties",
-        "report_type": "Move-Out", "condition": "Poor",
-        "rooms": [
-            {"name": "Living Room", "overall_rating": "Poor", "summary": "Significant damage. Drywall hole, carpet burns, detached baseboard.", "items": [
-                {"name": "Walls", "rating": "Poor", "notes": "6-inch hole in drywall, marker drawings"}, {"name": "Flooring", "rating": "Poor", "notes": "Cigarette burn, permanent stains"},
-                {"name": "Baseboards", "rating": "Poor", "notes": "Detached, water damage visible"}, {"name": "Lighting", "rating": "Fair", "notes": "Cover cracked"}],
-                "flags": ["Drywall repair required", "Carpet replacement needed", "Baseboard water damage — investigate"]},
-            {"name": "Kitchen", "overall_rating": "Poor", "summary": "Countertop chip, broken cabinet, dishwasher not draining, pest evidence.", "items": [
-                {"name": "Countertops", "rating": "Poor", "notes": "Large chip, burn marks"}, {"name": "Appliances", "rating": "Poor", "notes": "Dishwasher not draining, microwave handle broken"},
-                {"name": "Cabinets", "rating": "Poor", "notes": "Door off hinge, grease buildup"}, {"name": "Under Sink", "rating": "Poor", "notes": "Mouse droppings, pipe corrosion"}],
-                "flags": ["Dishwasher repair needed", "Pest control required", "Pipe corrosion — plumber needed"]},
-        ],
-    },
-    {
-        "address": "555 Cedar Lane, House", "tenant": "Amanda Thompson", "landlord": "Lakeside Rentals Inc",
-        "report_type": "Move-In", "condition": "Mixed",
-        "rooms": [
-            {"name": "Living Room", "overall_rating": "Good", "summary": "Very good. Recently painted, new blinds, well-maintained hardwood.", "items": [
-                {"name": "Walls", "rating": "Good", "notes": "Freshly painted"}, {"name": "Flooring", "rating": "Good", "notes": "Hardwood, minor scratches"},
-                {"name": "Windows", "rating": "Good", "notes": "New blinds"}, {"name": "Lighting", "rating": "Good", "notes": "All working"}], "flags": []},
-            {"name": "Bathroom", "overall_rating": "Poor", "summary": "Needs attention. Toilet wobbles, caulking peeling, loud exhaust fan.", "items": [
-                {"name": "Toilet", "rating": "Poor", "notes": "Wobbles, wax ring suspected"}, {"name": "Shower/Tub", "rating": "Fair", "notes": "Caulking peeling"},
-                {"name": "Vanity", "rating": "Fair", "notes": "Cabinet catch broken"}, {"name": "Ventilation", "rating": "Poor", "notes": "Fan very loud, vibrates"}],
-                "flags": ["Toilet needs new wax ring", "Exhaust fan replacement recommended"]},
-        ],
-    },
-]
-
-
-@app.post("/api/test/send-reports")
-async def send_test_reports(request: Request):
-    """TEMPORARY: Generate 5 mock reports and email them. Remove after testing."""
-    body = await request.json()
-    email = body.get("email", "")
-    if not email or "@" not in email:
-        raise HTTPException(400, "Valid email required")
-
-    results = []
-    for i, test in enumerate(TEST_REPORTS):
-        report_id = str(uuid.uuid4())
-        rooms_structured = []
-        for room in test["rooms"]:
-            rooms_structured.append({
-                "name": room["name"],
-                "description": json.dumps(room),
-                "photo_paths": [],
-                "photo_count": 0,
-            })
-
-        report_data = {
-            "id": report_id,
-            "fingerprint": "test_sender",
-            "date": datetime.now().strftime("%B %d, %Y"),
-            "report_type": test["report_type"],
-            "property_info": {
-                "address": test["address"],
-                "tenant_name": test["tenant"],
-                "landlord_name": test["landlord"],
-            },
-            "rooms": rooms_structured,
-        }
-
-        # Generate PDF
-        pdf_path = generate_pdf_report(report_data)
-        report_data["pdf_path"] = pdf_path
-
-        # Store temporarily
-        reports_db[report_id] = report_data
-
-        # Email the report
-        if not RESEND_API_KEY:
-            results.append({"address": test["address"], "condition": test["condition"], "error": "No Resend key"})
-            continue
-
-        pdf_bytes = Path(pdf_path).read_bytes()
-        pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
-        address = test["address"]
-        rtype = test["report_type"]
-        condition = test["condition"]
-        rdate = report_data["date"]
-
-        async with httpx.AsyncClient() as http:
-            res = await http.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "from": "Condition Report <reports@dataweaveai.com>",
-                    "to": [email],
-                    "subject": f"[{i+1}/5 {condition}] Condition Report — {address}",
-                    "html": f"""
-                        <div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#fff;">
-                            <div style="text-align:center;padding:16px 0;border-bottom:3px solid #2563eb;">
-                                <span style="font-size:24px;font-weight:800;color:#1a1a2e;">Condition</span><span style="font-size:24px;font-weight:800;color:#2563eb;">Report</span>
-                            </div>
-                            <div style="padding:24px 0;">
-                                <h2 style="color:#1a1a2e;margin:0 0 8px;font-size:20px;">{rtype} Inspection Report</h2>
-                                <p style="color:#555;margin:0 0 20px;font-size:15px;">Condition report for <strong>{address}</strong> is attached.</p>
-                                <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f8f9fa;border-radius:8px;">
-                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;width:120px;">Address</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;">{address}</td></tr>
-                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;">Type</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;">{rtype}</td></tr>
-                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;">Condition</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;">{condition}</td></tr>
-                                    <tr><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#888;font-size:13px;">Date</td><td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px;">{rdate}</td></tr>
-                                    <tr><td style="padding:10px 14px;color:#888;font-size:13px;">Rooms</td><td style="padding:10px 14px;font-size:14px;">{len(test['rooms'])}</td></tr>
-                                </table>
-                                <p style="color:#555;font-size:13px;margin:20px 0 0;">Open the PDF to see room-by-room condition ratings and action items.</p>
-                            </div>
-                            <div style="border-top:1px solid #e5e7eb;padding:16px 0 0;text-align:center;">
-                                <p style="color:#999;font-size:11px;margin:0;">Generated by <a href="https://condition-report.com" style="color:#2563eb;text-decoration:none;">condition-report.com</a></p>
-                            </div>
-                        </div>
-                    """,
-                    "attachments": [{
-                        "filename": f"Condition_Report_{address.replace(' ', '_').replace(',', '')}.pdf",
-                        "content": pdf_b64,
-                    }],
-                },
-            )
-
-        if res.status_code >= 400:
-            results.append({"address": address, "condition": condition, "error": res.text})
-        else:
-            results.append({"address": address, "condition": condition, "sent": True})
-
-        # Delay to respect Resend rate limit (2 req/sec)
-        await asyncio.sleep(1)
-
-    return {"results": results, "total": len(results)}
 
 
 # Mount static files
