@@ -826,7 +826,7 @@ def generate_pdf_report(report_data: dict) -> str:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "rentready-ai"}
+    return {"status": "ok", "service": "condition-report"}
 
 
 @app.get("/og-image.png")

@@ -66,8 +66,8 @@
         },
         "creator": {
             "@type": "Organization",
-            "name": "DataWeaveAI INC",
-            "url": "https://dataweave-ai.com"
+            "name": "Condition Report",
+            "url": "https://condition-report.com"
         }
     }
     </script>
@@ -1145,7 +1145,7 @@ function addDefaultRooms() {
 function addRoom(name) {
     // Free trial limit: 4 rooms max
     if (userStatus && userStatus.reports_used === 0 && rooms.length >= 4) {
-        alert('Free trial is limited to 4 rooms. Upgrade to add more.');
+        showToast('Free trial is limited to 4 rooms. Upgrade to add more.', 'info');
         return;
     }
 
