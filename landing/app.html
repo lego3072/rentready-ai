@@ -391,38 +391,39 @@
             margin-bottom: 12px;
             line-height: 1.5;
         }
-        .checklist-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 10px;
-        }
-        .checklist-table th {
-            background: #f8f9fa;
-            font-size: 12px;
-            font-weight: 700;
-            color: #666;
-            text-align: left;
-            padding: 8px 10px;
-            border-bottom: 2px solid #e5e7eb;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .checklist-table td {
-            font-size: 13px;
-            padding: 8px 10px;
+        /* Mobile-first checklist: card layout */
+        .checklist-items { margin-bottom: 10px; }
+        .checklist-item {
+            display: flex;
+            gap: 10px;
+            padding: 10px 0;
             border-bottom: 1px solid #f0f0f0;
-            vertical-align: top;
+            align-items: flex-start;
         }
-        .checklist-table tr:last-child td { border-bottom: none; }
+        .checklist-item:last-child { border-bottom: none; }
+        .checklist-item-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 110px;
+            flex-shrink: 0;
+        }
+        .checklist-item-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
         .item-rating {
             font-weight: 700;
-            font-size: 12px;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
             white-space: nowrap;
         }
-        .item-rating.good { color: #16a34a; }
-        .item-rating.fair { color: #f59e0b; }
-        .item-rating.poor { color: #dc2626; }
-        .item-notes { color: #555; line-height: 1.5; }
+        .item-rating.good { color: #166534; background: #dcfce7; }
+        .item-rating.fair { color: #92400e; background: #fef3c7; }
+        .item-rating.poor { color: #991b1b; background: #fef2f2; }
+        .item-notes { color: #555; line-height: 1.5; font-size: 13px; }
         .flag-list {
             margin-top: 10px;
             padding: 10px 12px;
@@ -1304,20 +1305,18 @@ async function analyzePhotos() {
 
             let itemsHtml = '';
             if (data.items && data.items.length > 0) {
-                const rows = data.items.map(item => {
+                const cards = data.items.map(item => {
                     const ir = (item.rating || 'N/A').toLowerCase();
                     const irClass = ir === 'good' ? 'good' : ir === 'fair' ? 'fair' : ir === 'poor' ? 'poor' : '';
-                    const irIcon = ir === 'good' ? '✅' : ir === 'fair' ? '⚠️' : ir === 'poor' ? '🔴' : '—';
-                    return `<tr>
-                        <td style="font-weight:600;">${item.name}</td>
-                        <td><span class="item-rating ${irClass}">${irIcon} ${item.rating || 'N/A'}</span></td>
-                        <td class="item-notes">${item.notes || ''}</td>
-                    </tr>`;
+                    return `<div class="checklist-item">
+                        <div class="checklist-item-header">
+                            <span class="checklist-item-name">${item.name}</span>
+                            <span class="item-rating ${irClass}">${item.rating || 'N/A'}</span>
+                        </div>
+                        <div class="item-notes">${item.notes || ''}</div>
+                    </div>`;
                 }).join('');
-                itemsHtml = `<table class="checklist-table">
-                    <thead><tr><th>Item</th><th>Rating</th><th>Condition</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>`;
+                itemsHtml = `<div class="checklist-items">${cards}</div>`;
             }
 
             let flagsHtml = '';
