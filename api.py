@@ -13,6 +13,7 @@ import hashlib
 import time
 import logging
 import secrets
+import asyncio
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -417,7 +418,7 @@ def resize_image(image_bytes: bytes, max_size: int = 768) -> bytes:
     return buf.getvalue()
 
 
-async def analyze_room_photos(room_name: str, photos: list[bytes], report_type: str = "Move-In") -> str:
+def analyze_room_photos_sync(room_name: str, photos: list[bytes], report_type: str = "Move-In") -> str:
     """Send room photos to Claude Vision and get structured condition assessment."""
     content = []
     for photo_bytes in photos:
@@ -719,46 +720,53 @@ def generate_pdf_report(report_data: dict) -> str:
         if summary_text:
             elements.append(Paragraph(summary_text, summary_style))
 
-        # Item checklist table
+        # Item checklist table — use Paragraph objects for text wrapping
         items = room_data.get("items", [])
         if items:
-            table_data = [["Item", "Rating", "Condition Notes"]]
+            header_style = ParagraphStyle("TH", parent=styles["Normal"], fontSize=9,
+                fontName="Helvetica-Bold", textColor=colors.HexColor("#333333"))
+            table_data = [[
+                Paragraph("Item", header_style),
+                Paragraph("Rating", header_style),
+                Paragraph("Condition Notes", header_style),
+            ]]
+            rating_row_map = []  # track ratings for coloring
             for item in items:
                 item_rating = item.get("rating", "N/A")
+                rc_item = rating_colors.get(item_rating, colors.HexColor("#9ca3af"))
+                r_style = ParagraphStyle("R", parent=styles["Normal"], fontSize=9,
+                    fontName="Helvetica-Bold", textColor=rc_item)
+                n_style = ParagraphStyle("N", parent=styles["Normal"], fontSize=9,
+                    leading=12, textColor=colors.HexColor("#555555"))
                 table_data.append([
-                    item.get("name", ""),
-                    item_rating,
-                    item.get("notes", ""),
+                    Paragraph(item.get("name", ""), item_name_style),
+                    Paragraph(item_rating, r_style),
+                    Paragraph(item.get("notes", ""), n_style),
                 ])
+                rating_row_map.append(item_rating)
 
-            item_table = Table(table_data, colWidths=[1.3 * inch, 0.8 * inch, 4.4 * inch])
+            item_table = Table(table_data, colWidths=[1.2 * inch, 0.7 * inch, 4.6 * inch])
             table_styles = [
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#333333")),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
-            # Color-code ratings
-            for row_idx in range(1, len(table_data)):
-                r = table_data[row_idx][1]
-                if r in rating_colors:
-                    table_styles.append(("TEXTCOLOR", (1, row_idx), (1, row_idx), rating_colors[r]))
-                    table_styles.append(("FONTNAME", (1, row_idx), (1, row_idx), "Helvetica-Bold"))
-
             item_table.setStyle(TableStyle(table_styles))
             elements.append(item_table)
 
-        # Flags
+        # Flags / Action Items
         flags = room_data.get("flags", [])
         if flags:
             elements.append(Spacer(1, 6))
+            elements.append(Paragraph("<b>Action Items / Issues:</b>", ParagraphStyle(
+                "FlagHeader", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold",
+                textColor=colors.HexColor("#991b1b"), spaceAfter=4,
+            )))
             for flag in flags:
                 if flag:
-                    elements.append(Paragraph(f"⚠ {flag}", flag_style))
+                    elements.append(Paragraph(f"- {flag}", flag_style))
 
         elements.append(Spacer(1, 10))
 
@@ -780,12 +788,25 @@ def generate_pdf_report(report_data: dict) -> str:
     ]))
     elements.append(sig_table)
 
-    # Footer
-    elements.append(Spacer(1, 30))
+    # Disclaimer
+    elements.append(Spacer(1, 20))
+    disclaimer_style = ParagraphStyle(
+        "Disclaimer", parent=styles["Normal"], fontSize=8, leading=11,
+        textColor=colors.HexColor("#999999"), spaceBefore=10,
+    )
     elements.append(Paragraph(
-        f"This report was generated on {datetime.now().strftime('%B %d, %Y at %I:%M %p')} "
-        f"using condition-report.com. Photos and descriptions are provided as documentation "
-        f"of property condition at the time of inspection.",
+        f"<b>DISCLAIMER:</b> This condition report was generated on "
+        f"{datetime.now().strftime('%B %d, %Y at %I:%M %p')} using AI-assisted analysis via "
+        f"condition-report.com. Photo analysis is based on visible conditions only and does not "
+        f"constitute a professional building inspection. Hidden defects, structural issues, and "
+        f"mechanical systems not visible in photographs are not assessed. Both parties should review "
+        f"this report together, note any discrepancies, and sign to acknowledge the documented "
+        f"condition. This report may be used as evidence in security deposit disputes.",
+        disclaimer_style,
+    ))
+    elements.append(Spacer(1, 8))
+    elements.append(Paragraph(
+        f"Report ID: {report_id} | condition-report.com | A DataWeaveAI INC product",
         meta_style,
     ))
 
@@ -975,30 +996,34 @@ async def analyze_report(
     if access.get("reason") == "free_trial" and len(rooms_data) > 4:
         rooms_data = rooms_data[:4]
 
-    # Analyze each room
-    analyzed_rooms = []
+    # Prepare room data for parallel analysis
+    rooms_to_analyze = []
     for room in rooms_data:
         room_name = room["room_name"]
         photo_paths = [p["path"] for p in room.get("photos", [])]
-
-        # Read photo bytes
         photo_bytes_list = []
         for path in photo_paths:
             if os.path.exists(path):
                 photo_bytes_list.append(Path(path).read_bytes())
+        if photo_bytes_list:
+            rooms_to_analyze.append({
+                "name": room_name,
+                "photos": photo_bytes_list,
+                "photo_paths": photo_paths,
+            })
 
-        if not photo_bytes_list:
-            continue
+    # Analyze ALL rooms in parallel for speed (6s per room → all rooms in ~6-8s total)
+    loop = asyncio.get_event_loop()
+    async def analyze_one(r):
+        # Run sync Claude API call in thread pool for true parallelism
+        desc = await loop.run_in_executor(
+            None,
+            lambda name=r["name"], photos=r["photos"]: analyze_room_photos_sync(name, photos, report_type)
+        )
+        return {"name": r["name"], "description": desc, "photo_paths": r["photo_paths"], "photo_count": len(r["photos"])}
 
-        # Call Claude Vision
-        description = await analyze_room_photos(room_name, photo_bytes_list, report_type)
-
-        analyzed_rooms.append({
-            "name": room_name,
-            "description": description,
-            "photo_paths": photo_paths,
-            "photo_count": len(photo_bytes_list),
-        })
+    analyzed_rooms = await asyncio.gather(*[analyze_one(r) for r in rooms_to_analyze])
+    analyzed_rooms = list(analyzed_rooms)  # convert from tuple
 
     # Build report
     report_id = str(uuid.uuid4())
