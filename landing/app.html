@@ -829,7 +829,7 @@
                 </div>
             </div>
 
-            <button class="btn-secondary" onclick="startNew()" style="margin-top:12px;">
+            <button class="btn-secondary" onclick="startNew()" id="create-another-btn" style="margin-top:12px;">
                 Create Another Report
             </button>
         </div>
@@ -932,6 +932,9 @@ async function init() {
                 'transaction_id': Date.now().toString()
             });
         }
+
+        // Wait for Stripe webhook to process before checking status
+        await new Promise(r => setTimeout(r, 2000));
     } else if (params.get('payment') === 'cancelled') {
         window.history.replaceState({}, '', '/');
         showToast('Payment was cancelled.', 'info');
@@ -1005,11 +1008,19 @@ function showPastReports() {
 
 // --- Step Navigation ---
 function goToStep1() {
+    if (userStatus && userStatus.reports_used > 0 && !hasPaidAccess()) {
+        showHardPaywall();
+        return;
+    }
     showStep(1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function goToStep2() {
+    if (userStatus && userStatus.reports_used > 0 && !hasPaidAccess()) {
+        showHardPaywall();
+        return;
+    }
     const address = document.getElementById('address').value.trim();
     if (!address) {
         document.getElementById('address').style.borderColor = '#dc2626';
@@ -1264,7 +1275,8 @@ function showHardPaywall() {
             </div>
         </div>`;
     document.getElementById('upgrade-banner').classList.remove('hidden');
-    // Hide past reports section for non-signed-in users
+    // Hide unnecessary buttons and past reports
+    document.getElementById('create-another-btn').classList.add('hidden');
     const pastSection = document.getElementById('past-reports-section');
     if (pastSection) pastSection.classList.add('hidden');
 }
@@ -1286,7 +1298,10 @@ function hasPaidAccess() {
     if (!userStatus) return false;
     if (userStatus.is_pro || userStatus.plan === 'pro') return true;
     const purchased = userStatus.single_reports_purchased || 0;
-    if (purchased > 0) return true;
+    const used = userStatus.reports_used || 0;
+    // Free trial is the first report (index 0), purchased credits cover reports after that
+    const remaining = purchased - Math.max(0, used - 1);
+    if (remaining > 0) return true;
     return false;
 }
 
@@ -1609,6 +1624,10 @@ function logoutAccount() {
     localStorage.removeItem('rr_account');
     updateProfileUI();
     closeProfileModal();
+    // Hide past reports and refresh state
+    const pastSection = document.getElementById('past-reports-section');
+    if (pastSection) pastSection.classList.add('hidden');
+    loadUserStatus();
 }
 
 function updateProfileUI() {
@@ -1634,6 +1653,11 @@ async function checkAccountOnLoad() {
             if (data.logged_in) {
                 accountData = { email: data.email, name: data.name, plan: data.plan };
                 localStorage.setItem('rr_account', JSON.stringify(accountData));
+                updateProfileUI();
+            } else {
+                // Server doesn't recognize this session — clear stale data
+                accountData = null;
+                localStorage.removeItem('rr_account');
                 updateProfileUI();
             }
         } catch (e) {

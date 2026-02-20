@@ -726,6 +726,11 @@ async def upload_photos(
 ):
     """Upload photos and assign room names. Returns photo IDs for analysis."""
     fp = get_fingerprint(request, x_fingerprint)
+    user = get_user(fp)
+    access = check_access(user)
+    if not access["allowed"]:
+        raise HTTPException(402, "Report limit reached. Purchase access to upload more photos.")
+
     rooms = json.loads(room_names)  # ["Kitchen", "Living Room", "Bedroom 1", ...]
 
     if len(photos) == 0:
