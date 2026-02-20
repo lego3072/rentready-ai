@@ -815,6 +815,7 @@ async function analyzePhotos() {
         // Show results
         document.getElementById('loading-state').classList.add('hidden');
         document.getElementById('results-state').classList.remove('hidden');
+        document.getElementById('download-btn').classList.remove('hidden');
 
         const resultsDiv = document.getElementById('results-rooms');
         resultsDiv.innerHTML = '';
