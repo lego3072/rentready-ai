@@ -199,7 +199,7 @@
         }
         .logo span { color: #2563eb; }
         .logo-sub {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 500;
             color: #999;
             letter-spacing: 0.3px;
@@ -249,7 +249,7 @@
         }
         .step.active .step-num { background: #2563eb; color: #fff; }
         .step.done .step-num { background: #16a34a; color: #fff; }
-        .step-arrow { color: #ccc; font-size: 12px; }
+        .step-arrow { color: #ccc; font-size: 14px; }
 
         /* Cards */
         .card {
@@ -320,7 +320,7 @@
             background: transparent;
             outline: none;
             color: #1a1a2e;
-            width: 65%;
+            width: 100%;
         }
         .room-name-input::placeholder { color: #aaa; }
         .remove-room {
@@ -358,7 +358,7 @@
         }
         .photo-upload-icon { font-size: 36px; margin-bottom: 6px; }
         .photo-upload-text { font-size: 15px; font-weight: 600; color: #444; }
-        .photo-upload-hint { font-size: 12px; color: #999; margin-top: 4px; }
+        .photo-upload-hint { font-size: 13px; color: #999; margin-top: 4px; }
 
         /* Photo thumbnails */
         .photo-thumbs {
@@ -495,7 +495,7 @@
         }
         .item-rating {
             font-weight: 700;
-            font-size: 11px;
+            font-size: 12px;
             padding: 2px 6px;
             border-radius: 4px;
             white-space: nowrap;
@@ -624,7 +624,7 @@
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            min-height: 40px;
+            min-height: 44px;
         }
 
         /* Action buttons row */
@@ -672,7 +672,7 @@
             padding: 24px 20px;
             padding-bottom: calc(24px + env(safe-area-inset-bottom, 0));
             width: 100%;
-            max-width: 500px;
+            max-width: min(500px, 100%);
             animation: slideUp 0.25s ease-out;
         }
         @keyframes slideUp {
@@ -743,7 +743,7 @@
         }
         .profile-avatar.guest { background: #d1d5db; color: #666; }
         .plan-badge {
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 700;
             padding: 2px 8px;
             border-radius: 6px;
