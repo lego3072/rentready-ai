@@ -1639,10 +1639,12 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     if not price_id:
         raise HTTPException(500, "Stripe not configured — pro price missing")
 
+    # Annual = one-time payment (charged once), Monthly = recurring subscription
+    checkout_mode = "payment" if billing == "annual" else "subscription"
     session = stripe.checkout.Session.create(
         payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
-        mode="subscription",
+        mode=checkout_mode,
         success_url=f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}?payment=cancelled",
         metadata={"fingerprint": fp, "type": "pro"},
