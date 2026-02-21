@@ -1140,6 +1140,16 @@ async def sitemap_xml():
         <changefreq>weekly</changefreq>
         <priority>1.0</priority>
     </url>
+    <url>
+        <loc>https://condition-report.com/terms</loc>
+        <changefreq>monthly</changefreq>
+        <priority>0.3</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/privacy</loc>
+        <changefreq>monthly</changefreq>
+        <priority>0.3</priority>
+    </url>
 </urlset>
 """
     return HTMLResponse(content=content, media_type="application/xml")
@@ -1151,6 +1161,24 @@ async def root():
     if html_path.exists():
         return HTMLResponse(html_path.read_text())
     return HTMLResponse("<h1>Condition Report</h1><p>App loading...</p>")
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_page():
+    """Serve Terms of Service page."""
+    html_path = Path("landing/terms.html")
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text())
+    return HTMLResponse("<h1>Terms of Service</h1><p>Page not found.</p>")
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page():
+    """Serve Privacy Policy page."""
+    html_path = Path("landing/privacy.html")
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text())
+    return HTMLResponse("<h1>Privacy Policy</h1><p>Page not found.</p>")
 
 
 @app.get("/api/user/status")
