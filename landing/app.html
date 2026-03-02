@@ -46,14 +46,14 @@
             {
                 "@type": "Offer",
                 "name": "Pro Monthly",
-                "price": "29.00",
+                "price": "39.00",
                 "priceCurrency": "USD",
                 "description": "Unlimited condition reports per month"
             },
             {
                 "@type": "Offer",
                 "name": "Pro Annual",
-                "price": "249.00",
+                "price": "349.00",
                 "priceCurrency": "USD",
                 "description": "Unlimited condition reports per year"
             }
@@ -107,7 +107,7 @@
                 "name": "How much does a condition report cost?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "Your first report is free. After that, single reports are $4.99 each. For property managers with multiple units, Pro plans start at $29/month for unlimited reports."
+                    "text": "Your first report is free. After that, single reports are $4.99 each. For property managers with multiple units, Pro plans start at $39/month for unlimited reports."
                 }
             },
             {
@@ -576,6 +576,69 @@
             opacity: 0.85;
         }
 
+        /* Pricing page modal */
+        .pricing-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 300;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .pricing-modal {
+            background: #fff;
+            border-radius: 16px;
+            padding: 28px 20px;
+            width: 100%;
+            max-width: 420px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.25s ease-out;
+        }
+        .pricing-modal h3 { font-size: 22px; font-weight: 700; margin-bottom: 4px; text-align: center; }
+        .pricing-modal .pricing-sub { font-size: 14px; color: #666; text-align: center; margin-bottom: 20px; }
+        .pricing-tier {
+            border: 1.5px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .pricing-tier:hover { border-color: #2563eb; }
+        .pricing-tier.best { border-color: #2563eb; background: #f0f4ff; }
+        .pricing-tier .tier-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .pricing-tier .tier-name { font-weight: 700; font-size: 16px; }
+        .pricing-tier .tier-price { font-weight: 800; font-size: 20px; color: #2563eb; }
+        .pricing-tier .tier-desc { font-size: 13px; color: #666; }
+        .pricing-tier .tier-badge {
+            display: inline-block;
+            background: #2563eb;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 6px;
+        }
+        .pricing-link {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2563eb;
+            cursor: pointer;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: #f0f4ff;
+        }
+        .pricing-link:active { background: #dbeafe; }
+
         /* Trial badge */
         .trial-badge {
             background: #fef3c7;
@@ -842,6 +905,7 @@
 <div class="header">
     <div class="logo" onclick="location.href='/'" style="cursor:pointer;">Condition<span>Report</span><span class="logo-sub">a DataWeaveAI company</span></div>
     <div style="display:flex;align-items:center;gap:8px;">
+        <span class="pricing-link" onclick="openPricingModal()">Pricing</span>
         <span class="user-status" id="user-status" onclick="showUpgradeBanner()" style="cursor:pointer;"></span>
         <button class="profile-btn" id="profile-btn" onclick="openProfileOrAuth()">
             <div class="profile-avatar guest" id="profile-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
@@ -904,6 +968,36 @@
         <div style="margin-top:16px;text-align:center;font-size:12px;color:#999;">
             Bug or issue? Contact <a href="mailto:joseph@dataweaveai.com" style="color:#2563eb;text-decoration:none;">joseph@dataweaveai.com</a>
         </div>
+    </div>
+</div>
+
+<!-- Pricing Modal -->
+<div id="pricing-modal" class="pricing-overlay hidden" onclick="if(event.target===this)closePricingModal()">
+    <div class="pricing-modal">
+        <h3>Simple Pricing</h3>
+        <p class="pricing-sub">Try your first report free. No credit card needed.</p>
+        <div class="pricing-tier" onclick="closePricingModal();checkout('single')">
+            <div class="tier-header">
+                <span class="tier-name">Single Report</span>
+                <span class="tier-price">$4.99</span>
+            </div>
+            <div class="tier-desc">One professional condition report. Pay as you go.</div>
+        </div>
+        <div class="pricing-tier" onclick="closePricingModal();checkout('pro')">
+            <div class="tier-header">
+                <span class="tier-name">Pro Monthly</span>
+                <span class="tier-price">$39/mo</span>
+            </div>
+            <div class="tier-desc">Unlimited reports. Cancel anytime.</div>
+        </div>
+        <div class="pricing-tier best" onclick="closePricingModal();checkout('annual')">
+            <div class="tier-header">
+                <span class="tier-name">Pro Annual<span class="tier-badge">BEST VALUE</span></span>
+                <span class="tier-price">$349/yr</span>
+            </div>
+            <div class="tier-desc">Unlimited reports. Save $119 vs monthly.</div>
+        </div>
+        <button class="btn-secondary" onclick="closePricingModal()" style="margin-top:12px;width:100%;">Close</button>
     </div>
 </div>
 
@@ -1023,11 +1117,11 @@
                         </div>
                         <div class="pricing-option" onclick="checkout('pro')">
                             <div class="label">Unlimited Monthly</div>
-                            <div class="price">$29/mo</div>
+                            <div class="price">$39/mo</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('annual')">
-                            <div class="label">Annual — Save $99</div>
-                            <div class="price">$249/yr</div>
+                            <div class="label">Annual — Save $119</div>
+                            <div class="price">$349/yr</div>
                         </div>
                     </div>
                 </div>
@@ -1149,7 +1243,7 @@ async function init() {
 
         // Google Ads conversion tracking
         if (typeof gtag === 'function') {
-            const convValue = type === 'pro' ? 29.00 : type === 'annual' ? 249.00 : 4.99;
+            const convValue = type === 'pro' ? 39.00 : type === 'annual' ? 349.00 : 4.99;
             gtag('event', 'conversion', {
                 'send_to': 'AW-17926414862/purchase',
                 'value': convValue,
@@ -1599,6 +1693,13 @@ function showPricingOnly() {
     document.getElementById('upgrade-banner').classList.remove('hidden');
 }
 
+function openPricingModal() {
+    document.getElementById('pricing-modal').classList.remove('hidden');
+}
+function closePricingModal() {
+    document.getElementById('pricing-modal').classList.add('hidden');
+}
+
 function showUpgradeBanner() {
     // Pro users don't need to see pricing
     if (userStatus && (userStatus.is_pro || userStatus.plan === 'pro')) return;
@@ -1899,7 +2000,7 @@ async function doShareReport() {
 async function checkout(type) {
     // Fire Google Ads "begin_checkout" event
     if (typeof gtag === 'function') {
-        const checkoutValue = type === 'single' ? 4.99 : type === 'annual' ? 249.00 : 29.00;
+        const checkoutValue = type === 'single' ? 4.99 : type === 'annual' ? 349.00 : 39.00;
         gtag('event', 'begin_checkout', {
             'send_to': 'AW-17926414862',
             'value': checkoutValue,
