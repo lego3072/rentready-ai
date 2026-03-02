@@ -39,7 +39,7 @@
             {
                 "@type": "Offer",
                 "name": "Single Report",
-                "price": "4.99",
+                "price": "9.99",
                 "priceCurrency": "USD",
                 "description": "One professional AI condition report"
             },
@@ -107,7 +107,7 @@
                 "name": "How much does a condition report cost?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "Your first report is free. After that, single reports are $4.99 each. For property managers with multiple units, Pro plans start at $39/month for unlimited reports."
+                    "text": "Your first report is free. After that, single reports are $9.99 each. For property managers with multiple units, Pro plans start at $39/month for unlimited reports."
                 }
             },
             {
@@ -979,7 +979,7 @@
         <div class="pricing-tier" onclick="closePricingModal();checkout('single')">
             <div class="tier-header">
                 <span class="tier-name">Single Report</span>
-                <span class="tier-price">$4.99</span>
+                <span class="tier-price">$9.99</span>
             </div>
             <div class="tier-desc">One professional condition report. Pay as you go.</div>
         </div>
@@ -1113,7 +1113,7 @@
                     <div class="pricing-options">
                         <div class="pricing-option" onclick="checkout('single')">
                             <div class="label">Single Report</div>
-                            <div class="price">$4.99</div>
+                            <div class="price">$9.99</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('pro')">
                             <div class="label">Unlimited Monthly</div>
@@ -1243,7 +1243,7 @@ async function init() {
 
         // Google Ads conversion tracking
         if (typeof gtag === 'function') {
-            const convValue = type === 'pro' ? 39.00 : type === 'annual' ? 349.00 : 4.99;
+            const convValue = type === 'pro' ? 39.00 : type === 'annual' ? 349.00 : 9.99;
             gtag('event', 'conversion', {
                 'send_to': 'AW-17926414862/purchase',
                 'value': convValue,
@@ -1618,7 +1618,7 @@ async function analyzePhotos() {
         if (typeof gtag === 'function') {
             gtag('event', 'conversion', {
                 'send_to': 'AW-17926414862/report_generated',
-                'value': 4.99,
+                'value': 9.99,
                 'currency': 'USD'
             });
             trackFunnel('report_generated', {
@@ -2000,7 +2000,7 @@ async function doShareReport() {
 async function checkout(type) {
     // Fire Google Ads "begin_checkout" event
     if (typeof gtag === 'function') {
-        const checkoutValue = type === 'single' ? 4.99 : type === 'annual' ? 349.00 : 39.00;
+        const checkoutValue = type === 'single' ? 9.99 : type === 'annual' ? 349.00 : 39.00;
         gtag('event', 'begin_checkout', {
             'send_to': 'AW-17926414862',
             'value': checkoutValue,
