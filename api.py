@@ -1220,10 +1220,15 @@ async def robots_txt():
 
 User-agent: *
 Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /sitemap.xml
+Allow: /docs
+Allow: /openapi.json
 Disallow: /api/
 Disallow: /static/
 
-# AI Crawlers — explicitly allowed for agent discovery
+# AI crawlers and assistant retrieval bots
 User-agent: GPTBot
 Allow: /
 
@@ -1245,10 +1250,25 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
+User-agent: Perplexity-User
+Allow: /
+
 User-agent: Google-Extended
 Allow: /
 
 User-agent: Googlebot
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: Applebot-Extended
 Allow: /
 
 Sitemap: https://condition-report.com/sitemap.xml
@@ -1259,6 +1279,14 @@ Sitemap: https://condition-report.com/sitemap.xml
 @app.get("/llms.txt")
 async def llms_txt():
     llms_path = Path("landing/llms.txt")
+    if llms_path.exists():
+        return HTMLResponse(content=llms_path.read_text(), media_type="text/plain")
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/llms-full.txt")
+async def llms_full_txt():
+    llms_path = Path("landing/llms-full.txt")
     if llms_path.exists():
         return HTMLResponse(content=llms_path.read_text(), media_type="text/plain")
     raise HTTPException(status_code=404, detail="Not found")
@@ -1282,6 +1310,26 @@ async def sitemap_xml():
         <loc>https://condition-report.com/privacy</loc>
         <changefreq>monthly</changefreq>
         <priority>0.3</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/llms.txt</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/llms-full.txt</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/docs</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/openapi.json</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.7</priority>
     </url>
 </urlset>
 """
