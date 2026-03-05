@@ -1215,14 +1215,53 @@ async def og_image():
 
 @app.get("/robots.txt")
 async def robots_txt():
-    content = """User-agent: *
+    content = """# Condition Report Robots.txt
+# https://condition-report.com
+
+User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /static/
 
+# AI Crawlers — explicitly allowed for agent discovery
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
 Sitemap: https://condition-report.com/sitemap.xml
 """
     return HTMLResponse(content=content, media_type="text/plain")
+
+
+@app.get("/llms.txt")
+async def llms_txt():
+    llms_path = Path("landing/llms.txt")
+    if llms_path.exists():
+        return HTMLResponse(content=llms_path.read_text(), media_type="text/plain")
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 @app.get("/sitemap.xml")

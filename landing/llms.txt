@@ -1,0 +1,32 @@
+# Condition Report
+
+> AI-powered property condition report generator. Upload room photos and get a professional PDF report in 60 seconds. For landlords, property managers, and real estate professionals. Free first report, then $9.99/report or $39/month unlimited.
+
+Condition Report uses Claude AI to analyze property photos and generate professional move-in, move-out, and periodic inspection reports. It rates walls, flooring, fixtures, cleanliness, and more for every room. Used by landlords, property managers, and real estate professionals to document rental property conditions with timestamped photo evidence.
+
+## Core Product
+
+- [Landing Page](https://condition-report.com/): Product overview, demo, pricing, and free trial
+- [Application](https://condition-report.com/): Upload room photos, AI generates professional condition report as PDF
+
+## Features
+
+- AI Photo Analysis: Upload room photos, Claude Vision rates condition of walls, floors, fixtures, appliances, and cleanliness
+- Room-by-Room Reports: Each room gets individual condition ratings with photo evidence
+- Move-In / Move-Out / Periodic: Supports all inspection types with appropriate templates
+- Damage Detection: AI distinguishes between normal wear and tear versus tenant damage
+- Professional PDF Reports: Branded PDF with photos, timestamps, and detailed condition ratings
+- No Signup Required: Start generating reports immediately with device fingerprint auth
+- Report History: Save, view, and re-download all past reports
+
+## Pricing
+
+- Free Trial: 1 report free — no credit card required
+- Single Report: $9.99 per report — no subscription needed
+- Pro Monthly: $39/month — unlimited reports
+- Pro Annual: $349/year — unlimited reports, save $119
+
+## Optional
+
+- [Terms of Service](https://condition-report.com/terms): Legal terms
+- [Privacy Policy](https://condition-report.com/privacy): Privacy policy

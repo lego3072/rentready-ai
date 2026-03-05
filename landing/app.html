@@ -29,53 +29,54 @@
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
+        "@type": "WebApplication",
         "name": "Condition Report",
         "url": "https://condition-report.com",
-        "description": "AI-powered property condition report generator. Upload room photos and get a professional PDF report in 60 seconds.",
+        "description": "AI-powered property condition report generator. Upload room photos and get a professional PDF report in 60 seconds. For landlords, property managers, and real estate professionals.",
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "Web",
-        "offers": [
-            {
-                "@type": "Offer",
-                "name": "Single Report",
-                "price": "9.99",
-                "priceCurrency": "USD",
-                "description": "One professional AI condition report"
-            },
-            {
-                "@type": "Offer",
-                "name": "Pro Monthly",
-                "price": "39.00",
-                "priceCurrency": "USD",
-                "description": "Unlimited condition reports per month"
-            },
-            {
-                "@type": "Offer",
-                "name": "Pro Annual",
-                "price": "349.00",
-                "priceCurrency": "USD",
-                "description": "Unlimited condition reports per year"
-            }
-        ],
+        "browserRequirements": "Requires JavaScript. Works on all modern browsers and mobile devices.",
         "creator": {
             "@type": "Organization",
             "name": "Condition Report",
             "url": "https://condition-report.com"
-        }
-    }
-    </script>
-    <script type="application/ld+json">
-    {
-        "@context": "https://schema.org",
-        "@type": "WebApplication",
-        "name": "Condition Report",
-        "url": "https://condition-report.com",
-        "browserRequirements": "Requires JavaScript. Works on all modern browsers.",
-        "softwareHelp": {
-            "@type": "CreativeWork",
-            "name": "How it works",
-            "text": "1. Enter property details 2. Upload room photos 3. AI generates professional condition report as PDF"
+        },
+        "offers": {
+            "@type": "AggregateOffer",
+            "lowPrice": "0",
+            "highPrice": "349",
+            "priceCurrency": "USD",
+            "offerCount": "4",
+            "offers": [
+                {"@type": "Offer", "name": "Free Trial", "price": "0", "priceCurrency": "USD", "description": "1 free condition report — no credit card required", "availability": "https://schema.org/InStock"},
+                {"@type": "Offer", "name": "Single Report", "price": "9.99", "priceCurrency": "USD", "description": "One professional AI property condition report", "availability": "https://schema.org/InStock"},
+                {
+                    "@type": "Offer",
+                    "name": "Pro Monthly",
+                    "description": "Unlimited property condition reports per month",
+                    "availability": "https://schema.org/InStock",
+                    "priceSpecification": {
+                        "@type": "UnitPriceSpecification",
+                        "price": "39.00",
+                        "priceCurrency": "USD",
+                        "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "MON"},
+                        "unitText": "month"
+                    }
+                },
+                {
+                    "@type": "Offer",
+                    "name": "Pro Annual",
+                    "description": "Unlimited property condition reports per year — save $119",
+                    "availability": "https://schema.org/InStock",
+                    "priceSpecification": {
+                        "@type": "UnitPriceSpecification",
+                        "price": "349.00",
+                        "priceCurrency": "USD",
+                        "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "ANN"},
+                        "unitText": "year"
+                    }
+                }
+            ]
         }
     }
     </script>
