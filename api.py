@@ -17,7 +17,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, Dict
 
 import anthropic
 import bcrypt
@@ -59,6 +59,7 @@ STRIPE_PRICE_SINGLE = os.getenv("STRIPE_PRICE_SINGLE", "")
 STRIPE_PRICE_MONTHLY = os.getenv("STRIPE_PRICE_MONTHLY", "")
 STRIPE_PRICE_ANNUAL = os.getenv("STRIPE_PRICE_ANNUAL", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "").strip()
 
 stripe.api_key = STRIPE_SECRET_KEY
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -216,6 +217,44 @@ try:
                     )
                 """)
 
+                # Attribution events (LLM/search source touchpoints and conversions)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS attribution_events (
+                        id SERIAL PRIMARY KEY,
+                        event_type VARCHAR(32) NOT NULL,
+                        fingerprint VARCHAR(255),
+                        email VARCHAR(255),
+                        path VARCHAR(255),
+                        referrer TEXT,
+                        user_agent TEXT,
+                        landing_url TEXT,
+                        utm_source VARCHAR(255),
+                        utm_medium VARCHAR(255),
+                        utm_campaign VARCHAR(255),
+                        utm_term VARCHAR(255),
+                        ai_source VARCHAR(64),
+                        is_ai_source BOOLEAN DEFAULT FALSE,
+                        metadata JSONB DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_attribution_events_created_at
+                    ON attribution_events(created_at DESC)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_attribution_events_fingerprint
+                    ON attribution_events(fingerprint)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_attribution_events_event_type
+                    ON attribution_events(event_type)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_attribution_events_is_ai
+                    ON attribution_events(is_ai_source, created_at DESC)
+                """)
+
                 # Add email_verified column to accounts (safe to run multiple times)
                 cur.execute("""
                     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE
@@ -313,6 +352,106 @@ def get_fingerprint(request: Request, x_fingerprint: Optional[str] = None) -> st
         return x_fingerprint
     ip = request.client.host if request.client else "unknown"
     return hashlib.sha256(ip.encode()).hexdigest()[:16]
+
+
+def detect_ai_source(user_agent: str = "", referrer: str = "", utm_source: str = "") -> Optional[str]:
+    ua = (user_agent or "").lower()
+    ref = (referrer or "").lower()
+    utm = (utm_source or "").lower().strip()
+
+    utm_map = {
+        "chatgpt": "chatgpt",
+        "openai": "chatgpt",
+        "claude": "claude",
+        "anthropic": "claude",
+        "perplexity": "perplexity",
+        "gemini": "gemini",
+        "copilot": "copilot",
+        "grok": "grok",
+    }
+    if utm in utm_map:
+        return utm_map[utm]
+
+    ref_rules = [
+        ("chatgpt", ["chatgpt.com", "openai.com"]),
+        ("claude", ["claude.ai", "anthropic.com"]),
+        ("perplexity", ["perplexity.ai"]),
+        ("gemini", ["gemini.google.com", "bard.google.com"]),
+        ("copilot", ["copilot.microsoft.com", "bing.com/chat"]),
+        ("grok", ["x.com/i/grok"]),
+    ]
+    for source, patterns in ref_rules:
+        if any(p in ref for p in patterns):
+            return source
+
+    ua_rules = [
+        ("chatgpt", ["gptbot", "oai-searchbot", "chatgpt-user"]),
+        ("claude", ["claudebot", "claude-user", "claude-searchbot"]),
+        ("perplexity", ["perplexitybot", "perplexity-user"]),
+        ("gemini", ["google-extended"]),
+    ]
+    for source, patterns in ua_rules:
+        if any(p in ua for p in patterns):
+            return source
+
+    return None
+
+
+def record_attribution_event(
+    *,
+    event_type: str,
+    request: Request,
+    fingerprint: Optional[str] = None,
+    email: Optional[str] = None,
+    landing_url: Optional[str] = None,
+    utm_source: Optional[str] = None,
+    utm_medium: Optional[str] = None,
+    utm_campaign: Optional[str] = None,
+    utm_term: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not POSTGRES_AVAILABLE:
+        return
+
+    user_agent = (request.headers.get("user-agent") or "")[:500]
+    referrer = (request.headers.get("referer") or "")[:1000]
+    ai_source = detect_ai_source(user_agent=user_agent, referrer=referrer, utm_source=utm_source or "")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO attribution_events (
+                event_type, fingerprint, email, path, referrer, user_agent, landing_url,
+                utm_source, utm_medium, utm_campaign, utm_term, ai_source, is_ai_source, metadata
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                event_type,
+                fingerprint,
+                (email or "").lower() or None,
+                str(request.url.path)[:255],
+                referrer or None,
+                user_agent or None,
+                (landing_url or "")[:1000] or None,
+                (utm_source or "")[:255] or None,
+                (utm_medium or "")[:255] or None,
+                (utm_campaign or "")[:255] or None,
+                (utm_term or "")[:255] or None,
+                ai_source,
+                bool(ai_source),
+                Json(metadata or {}),
+            ),
+        )
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        logger.debug(f"Attribution event logging skipped: {e}")
+    finally:
+        if conn:
+            release_db_connection(conn)
 
 
 def get_user(fingerprint: str) -> dict:
@@ -1336,6 +1475,20 @@ async def sitemap_xml():
     return HTMLResponse(content=content, media_type="application/xml")
 
 
+@app.get("/indexnow-key.txt")
+async def indexnow_key_file():
+    if not INDEXNOW_KEY:
+        raise HTTPException(status_code=404, detail="Not found")
+    return HTMLResponse(content=f"{INDEXNOW_KEY}\n", media_type="text/plain")
+
+
+@app.get("/{indexnow_key}.txt")
+async def indexnow_key_alias(indexnow_key: str):
+    if not INDEXNOW_KEY or indexnow_key != INDEXNOW_KEY:
+        raise HTTPException(status_code=404, detail="Not found")
+    return HTMLResponse(content=f"{INDEXNOW_KEY}\n", media_type="text/plain")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     html_path = Path("landing/app.html")
@@ -1379,6 +1532,30 @@ async def user_status(request: Request, x_fingerprint: Optional[str] = Header(No
         "access": access,
         "reports": reports,
     }
+
+
+@app.post("/api/attribution/touch")
+@limiter.limit("30/minute")
+async def attribution_touch(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    fp = get_fingerprint(request, x_fingerprint)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    record_attribution_event(
+        event_type=(body.get("event_type") or "touch")[:32],
+        request=request,
+        fingerprint=fp,
+        email=(body.get("email") or "").strip().lower() or None,
+        landing_url=(body.get("landing_url") or str(request.url))[:1000],
+        utm_source=(body.get("utm_source") or "")[:255],
+        utm_medium=(body.get("utm_medium") or "")[:255],
+        utm_campaign=(body.get("utm_campaign") or "")[:255],
+        utm_term=(body.get("utm_term") or "")[:255],
+        metadata={"product": "condition-report"},
+    )
+    return {"ok": True}
 
 
 @app.post("/api/upload-photos")
@@ -1692,6 +1869,13 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
             logger.error(f"verify_payment: failed to activate pro plan for {fp[:12]}...")
             raise HTTPException(500, "Payment verified but plan activation failed. Please retry in a moment.")
 
+    record_attribution_event(
+        event_type="payment_success",
+        request=request,
+        fingerprint=fp,
+        email=(session.get("customer_details", {}) or {}).get("email"),
+        metadata={"purchase_type": purchase_type, "session_id": session_id, "product": "condition-report"},
+    )
     return {"verified": True, "type": purchase_type}
 
 
@@ -2092,6 +2276,13 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
                 </div>""",
             ))
 
+            record_attribution_event(
+                event_type="signup",
+                request=request,
+                fingerprint=fp,
+                email=email,
+                metadata={"plan": plan, "product": "condition-report"},
+            )
             return {"success": True, "email": email, "plan": plan, "name": name}
         except HTTPException:
             raise
