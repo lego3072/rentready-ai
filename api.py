@@ -60,6 +60,7 @@ STRIPE_PRICE_MONTHLY = os.getenv("STRIPE_PRICE_MONTHLY", "")
 STRIPE_PRICE_ANNUAL = os.getenv("STRIPE_PRICE_ANNUAL", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "").strip()
+FOLLOWUP_INBOX_EMAIL = os.getenv("FOLLOWUP_INBOX_EMAIL", "joseph@dataweaveai.com").strip()
 
 stripe.api_key = STRIPE_SECRET_KEY
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -786,6 +787,37 @@ async def send_transactional_email(to_email: str, subject: str, html_body: str):
     except Exception as e:
         logger.error(f"Email send error: {e}")
         return False
+
+
+async def send_checkout_followups(
+    *,
+    buyer_email: Optional[str],
+    product_label: str,
+    checkout_url: str,
+    fingerprint: str,
+):
+    if buyer_email:
+        await send_transactional_email(
+            buyer_email,
+            "Complete your Condition Report checkout",
+            (
+                f"<h2>You're almost done</h2>"
+                f"<p>Finish checkout to activate <b>{product_label}</b>:</p>"
+                f"<p><a href=\"{checkout_url}\">{checkout_url}</a></p>"
+            ),
+        )
+
+    if FOLLOWUP_INBOX_EMAIL:
+        await send_transactional_email(
+            FOLLOWUP_INBOX_EMAIL,
+            f"Condition Report checkout started: {product_label}",
+            (
+                f"<p><b>Checkout started</b></p>"
+                f"<p><b>Email:</b> {buyer_email or '-'}</p>"
+                f"<p><b>Fingerprint:</b> {fingerprint}</p>"
+                f"<p><b>Checkout URL:</b> <a href=\"{checkout_url}\">{checkout_url}</a></p>"
+            ),
+        )
 
 
 def check_access(user: dict) -> dict:
@@ -1821,6 +1853,13 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
         cancel_url=f"{BASE_URL}?payment=cancelled",
         metadata={"fingerprint": fp, "type": "single"},
     )
+    user = get_user(fp)
+    await send_checkout_followups(
+        buyer_email=user.get("email"),
+        product_label="Single Report",
+        checkout_url=session.url,
+        fingerprint=fp,
+    )
     return {"checkout_url": session.url}
 
 
@@ -2013,6 +2052,13 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
         success_url=f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}?payment=cancelled",
         metadata={"fingerprint": fp, "type": "pro"},
+    )
+    user = get_user(fp)
+    await send_checkout_followups(
+        buyer_email=user.get("email"),
+        product_label="Pro Annual" if billing == "annual" else "Pro Monthly",
+        checkout_url=session.url,
+        fingerprint=fp,
     )
     return {"checkout_url": session.url}
 
@@ -2283,6 +2329,17 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
                 email=email,
                 metadata={"plan": plan, "product": "condition-report"},
             )
+            if FOLLOWUP_INBOX_EMAIL:
+                asyncio.create_task(send_transactional_email(
+                    FOLLOWUP_INBOX_EMAIL,
+                    "Condition Report signup started",
+                    (
+                        f"<p><b>New signup</b></p>"
+                        f"<p><b>Email:</b> {email}</p>"
+                        f"<p><b>Name:</b> {name or '-'}</p>"
+                        f"<p><b>Plan:</b> {plan}</p>"
+                    ),
+                ))
             return {"success": True, "email": email, "plan": plan, "name": name}
         except HTTPException:
             raise
