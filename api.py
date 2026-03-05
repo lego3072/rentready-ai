@@ -462,8 +462,8 @@ def get_report_from_db(report_id: str) -> dict | None:
     return None
 
 
-def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None):
-    """Update user plan in DB."""
+def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None) -> bool:
+    """Update user plan in DB and keep accounts table in sync. Returns True on success."""
     if POSTGRES_AVAILABLE:
         conn = None
         try:
@@ -479,33 +479,97 @@ def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None
                     UPDATE users SET plan = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE fingerprint = %s
                 """, (plan, fingerprint))
+            users_updated = cur.rowcount
+
+            # Sync accounts table for consistent profile/account views.
+            if stripe_customer_id:
+                cur.execute("""
+                    UPDATE accounts SET plan = %s, stripe_customer_id = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE fingerprint = %s
+                """, (plan, stripe_customer_id, fingerprint))
+            else:
+                cur.execute("""
+                    UPDATE accounts SET plan = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE fingerprint = %s
+                """, (plan, fingerprint))
+            accounts_updated = cur.rowcount
+
             conn.commit()
             cur.close()
+            if users_updated == 0:
+                logger.warning(f"update_user_plan: no users row updated for fingerprint={fingerprint[:12]}...")
+            return users_updated > 0 or accounts_updated > 0
         except Exception as e:
             logger.error(f"DB update_user_plan error: {e}")
+            return False
         finally:
             if conn:
                 release_db_connection(conn)
 
+    # In-memory fallback mode
+    user = users_db.get(fingerprint)
+    if not user:
+        user = {
+            "fingerprint": fingerprint,
+            "email": None,
+            "reports_used": 0,
+            "is_pro": False,
+            "plan": "free",
+            "stripe_customer_id": None,
+            "single_reports_purchased": 0,
+            "reports": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        users_db[fingerprint] = user
+    user["plan"] = plan
+    user["is_pro"] = plan == "pro"
+    if stripe_customer_id:
+        user["stripe_customer_id"] = stripe_customer_id
+    return True
 
-def add_single_report_purchase(fingerprint: str):
-    """Increment single_reports_purchased in DB."""
+
+def add_single_report_purchase(fingerprint: str) -> bool:
+    """Increment single_reports_purchased in DB. Returns True on success."""
     if POSTGRES_AVAILABLE:
         conn = None
         try:
             conn = get_db_connection()
             cur = conn.cursor()
+            # Upsert ensures payment credits are not lost if user row is missing.
             cur.execute("""
-                UPDATE users SET single_reports_purchased = single_reports_purchased + 1, updated_at = CURRENT_TIMESTAMP
-                WHERE fingerprint = %s
+                INSERT INTO users (fingerprint, plan, reports_used, single_reports_purchased)
+                VALUES (%s, 'free', 0, 1)
+                ON CONFLICT (fingerprint) DO UPDATE SET
+                    single_reports_purchased = users.single_reports_purchased + 1,
+                    updated_at = CURRENT_TIMESTAMP
             """, (fingerprint,))
             conn.commit()
             cur.close()
+            return True
         except Exception as e:
             logger.error(f"DB add_single_report error: {e}")
+            return False
         finally:
             if conn:
                 release_db_connection(conn)
+
+    # In-memory fallback mode
+    user = users_db.get(fingerprint)
+    if not user:
+        user = {
+            "fingerprint": fingerprint,
+            "email": None,
+            "reports_used": 0,
+            "is_pro": False,
+            "plan": "free",
+            "stripe_customer_id": None,
+            "single_reports_purchased": 0,
+            "reports": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        users_db[fingerprint] = user
+    user["single_reports_purchased"] = user.get("single_reports_purchased", 0) + 1
+    return True
 
 
 _processed_sessions_mem = set()  # in-memory fallback
@@ -1499,17 +1563,15 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
         return {"verified": True, "type": purchase_type, "already_processed": True}
 
     if purchase_type == "single":
-        add_single_report_purchase(fp)
-        if fp in users_db:
-            users_db[fp]["single_reports_purchased"] += 1
+        if not add_single_report_purchase(fp):
+            logger.error(f"verify_payment: failed to apply single-report purchase for {fp[:12]}...")
+            raise HTTPException(500, "Payment verified but credit grant failed. Please retry in a moment.")
 
     elif purchase_type == "pro":
         customer_id = session.get("customer", "") or ""
-        update_user_plan(fp, "pro", customer_id)
-        if fp in users_db:
-            users_db[fp]["is_pro"] = True
-            users_db[fp]["plan"] = "pro"
-            users_db[fp]["stripe_customer_id"] = customer_id
+        if not update_user_plan(fp, "pro", customer_id):
+            logger.error(f"verify_payment: failed to activate pro plan for {fp[:12]}...")
+            raise HTTPException(500, "Payment verified but plan activation failed. Please retry in a moment.")
 
     return {"verified": True, "type": purchase_type}
 
@@ -1754,16 +1816,14 @@ async def stripe_webhook(request: Request):
                 logger.info(f"Webhook skipping already-processed session {stripe_session_id}")
             else:
                 if purchase_type == "single":
-                    add_single_report_purchase(fp)
-                    if fp in users_db:
-                        users_db[fp]["single_reports_purchased"] += 1
+                    if not add_single_report_purchase(fp):
+                        logger.error(f"webhook: failed to grant single-report purchase for {fp[:12]}...")
+                        raise HTTPException(500, "Failed to apply single-report purchase")
                 elif purchase_type == "pro":
                     customer_id = session.get("customer", "")
-                    update_user_plan(fp, "pro", customer_id)
-                    if fp in users_db:
-                        users_db[fp]["is_pro"] = True
-                        users_db[fp]["plan"] = "pro"
-                        users_db[fp]["stripe_customer_id"] = customer_id
+                    if not update_user_plan(fp, "pro", customer_id):
+                        logger.error(f"webhook: failed to activate pro plan for {fp[:12]}...")
+                        raise HTTPException(500, "Failed to activate pro plan")
 
     elif event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
