@@ -603,6 +603,24 @@ def mark_session_processed(session_id: str, fingerprint: str, purchase_type: str
     return True
 
 
+def rollback_processed_session(session_id: str):
+    """Rollback a processed marker so payment grant can be retried safely."""
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM processed_stripe_sessions WHERE session_id = %s", (session_id,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            logger.error(f"rollback_processed_session error: {e}")
+        finally:
+            if conn:
+                release_db_connection(conn)
+    _processed_sessions_mem.discard(session_id)
+
+
 async def send_transactional_email(to_email: str, subject: str, html_body: str):
     """Send a transactional email via Resend API."""
     if not RESEND_API_KEY:
@@ -1564,12 +1582,14 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
 
     if purchase_type == "single":
         if not add_single_report_purchase(fp):
+            rollback_processed_session(session_id)
             logger.error(f"verify_payment: failed to apply single-report purchase for {fp[:12]}...")
             raise HTTPException(500, "Payment verified but credit grant failed. Please retry in a moment.")
 
     elif purchase_type == "pro":
         customer_id = session.get("customer", "") or ""
         if not update_user_plan(fp, "pro", customer_id):
+            rollback_processed_session(session_id)
             logger.error(f"verify_payment: failed to activate pro plan for {fp[:12]}...")
             raise HTTPException(500, "Payment verified but plan activation failed. Please retry in a moment.")
 
@@ -1817,11 +1837,13 @@ async def stripe_webhook(request: Request):
             else:
                 if purchase_type == "single":
                     if not add_single_report_purchase(fp):
+                        rollback_processed_session(stripe_session_id)
                         logger.error(f"webhook: failed to grant single-report purchase for {fp[:12]}...")
                         raise HTTPException(500, "Failed to apply single-report purchase")
                 elif purchase_type == "pro":
                     customer_id = session.get("customer", "")
                     if not update_user_plan(fp, "pro", customer_id):
+                        rollback_processed_session(stripe_session_id)
                         logger.error(f"webhook: failed to activate pro plan for {fp[:12]}...")
                         raise HTTPException(500, "Failed to activate pro plan")
 
