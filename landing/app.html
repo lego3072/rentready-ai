@@ -1456,7 +1456,7 @@ function renderRooms() {
                     <div class="photo-upload-text">${uploadText}</div>
                     <div class="photo-upload-hint">JPG, PNG — up to 3 photos per room</div>
                 </div>
-                <input type="file" id="file_${room.id}" accept="image/*,.pdf" multiple
+                <input type="file" id="file_${room.id}" accept="image/*" multiple
                     style="display:none" onchange="handlePhotos('${room.id}', this.files)">
                 ${thumbsHtml ? `<div class="photo-thumbs">${thumbsHtml}</div>` : ''}
             </div>`;
@@ -1473,8 +1473,13 @@ function handlePhotos(roomId, fileList) {
     if (!room) return;
 
     const files = Array.from(fileList).slice(0, 3);
+    let skippedNonImages = 0;
     files.forEach(file => {
         if (room.photos.length >= 3) return;
+        if (!file.type || !file.type.startsWith('image/')) {
+            skippedNonImages += 1;
+            return;
+        }
         const reader = new FileReader();
         reader.onload = (e) => {
             room.photos.push({ dataUrl: e.target.result, file: file });
@@ -1484,6 +1489,10 @@ function handlePhotos(roomId, fileList) {
         };
         reader.readAsDataURL(file);
     });
+
+    if (skippedNonImages > 0) {
+        showToast('Only image files are supported (JPG/PNG/HEIC).', 'info');
+    }
 }
 
 function updateAnalyzeBtn() {

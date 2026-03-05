@@ -689,16 +689,28 @@ def resize_image(image_bytes: bytes, max_size: int = 768) -> bytes:
 def analyze_room_photos_sync(room_name: str, photos: list[bytes], report_type: str = "Move-In") -> str:
     """Send room photos to Claude Vision and get structured condition assessment."""
     content = []
-    for photo_bytes in photos:
-        resized = resize_image(photo_bytes)
-        b64 = encode_image(resized)
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": b64,
-            },
+    for i, photo_bytes in enumerate(photos):
+        try:
+            resized = resize_image(photo_bytes)
+            b64 = encode_image(resized)
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": b64,
+                },
+            })
+        except Exception as e:
+            logger.warning(f"Skipping non-image/corrupt upload for room '{room_name}' index={i}: {e}")
+
+    if not content:
+        # Graceful fallback instead of crashing analysis for the whole report.
+        return json.dumps({
+            "overall_rating": "N/A",
+            "items": [],
+            "summary": "No valid image files were detected for this room. Please upload JPG or PNG photos.",
+            "flags": ["No valid images uploaded for analysis"],
         })
 
     # Inspection-type-specific instructions
