@@ -1490,7 +1490,6 @@ Allow: /sitemap.xml
 Allow: /docs
 Allow: /openapi.json
 Allow: /.well-known/ai-plugin.json
-Allow: /v1/mcp/tools
 Disallow: /api/
 Disallow: /static/
 
@@ -1704,11 +1703,6 @@ async def sitemap_xml():
     </url>
     <url>
         <loc>https://condition-report.com/.well-known/ai-plugin.json</loc>
-        <changefreq>weekly</changefreq>
-        <priority>0.8</priority>
-    </url>
-    <url>
-        <loc>https://condition-report.com/v1/mcp/tools</loc>
         <changefreq>weekly</changefreq>
         <priority>0.8</priority>
     </url>

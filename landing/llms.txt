@@ -48,7 +48,6 @@ It is built for speed, documentation quality, and deposit-dispute evidence.
 - Interactive docs: https://condition-report.com/docs
 - Agent offer: https://condition-report.com/.well-known/agent-offer.json
 - AI plugin manifest: https://condition-report.com/.well-known/ai-plugin.json
-- MCP tools: https://condition-report.com/v1/mcp/tools
 
 ## Pricing Snapshot
 - 1 free trial report
