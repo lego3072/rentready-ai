@@ -18,6 +18,10 @@
     <meta name="twitter:title" content="Condition Report — AI Property Condition Reports">
     <meta name="twitter:description" content="Upload room photos. Get a professional condition report in 60 seconds. No signup required.">
     <meta name="twitter:image" content="https://condition-report.com/og-image.png">
+    <script>
+        window.META_PIXEL_ID = window.META_PIXEL_ID || "";
+        window.LINKEDIN_PARTNER_ID = window.LINKEDIN_PARTNER_ID || "";
+    </script>
     <link rel="canonical" href="https://condition-report.com">
     <meta name="robots" content="index, follow">
     <link rel="alternate" type="text/plain" title="LLMs Profile" href="/llms.txt">
@@ -1281,11 +1285,36 @@ async function sendAttributionTouch() {
     }
 }
 
+function installRetargetingPixels() {
+    const metaId = window.META_PIXEL_ID || '';
+    if (metaId) {
+        !(function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+        n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)})(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+        window.fbq('init', metaId);
+        window.fbq('track', 'PageView');
+    }
+
+    const linkedinId = window.LINKEDIN_PARTNER_ID || '';
+    if (linkedinId) {
+        window._linkedin_data_partner_ids = window._linkedin_data_partner_ids || [];
+        window._linkedin_data_partner_ids.push(linkedinId);
+        const s = document.createElement('script');
+        s.type = 'text/javascript';
+        s.async = true;
+        s.src = 'https://snap.licdn.com/li.lms-analytics/insight.min.js';
+        document.head.appendChild(s);
+    }
+}
+
 // --- Init ---
 async function init() {
     // Capture UTM parameters on landing
     captureUTM();
     await sendAttributionTouch();
+    installRetargetingPixels();
 
     // Check for payment result
     const params = new URLSearchParams(window.location.search);
@@ -2095,6 +2124,14 @@ async function checkout(type) {
             'value': checkoutValue,
             'currency': 'USD',
             'items': [{ 'name': type === 'single' ? 'Single Report' : type === 'annual' ? 'Pro Annual' : 'Pro Monthly' }]
+        });
+    }
+    if (typeof window.fbq === 'function') {
+        const checkoutValue = type === 'single' ? 9.99 : type === 'annual' ? 349.00 : 39.00;
+        window.fbq('track', 'InitiateCheckout', {
+            content_name: type === 'single' ? 'Condition Single Report' : type === 'annual' ? 'Condition Pro Annual' : 'Condition Pro Monthly',
+            value: checkoutValue,
+            currency: 'USD'
         });
     }
 
