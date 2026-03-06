@@ -1463,6 +1463,39 @@ async def llms_full_txt():
     raise HTTPException(status_code=404, detail="Not found")
 
 
+@app.get("/.well-known/agent-offer.json")
+async def agent_offer():
+    site_url = "https://condition-report.com"
+    return {
+        "name": "Condition Report",
+        "company": "DataWeave INC",
+        "url": site_url,
+        "product_type": "rental property condition documentation automation",
+        "value_proposition": (
+            "Turn room photos into evidence-ready condition reports quickly, with optional implementation support "
+            "so operators can focus on tenant turnover and leasing."
+        ),
+        "primary_paths": [
+            {
+                "path": "single_report",
+                "cta": f"{site_url}/#pricing",
+                "description": "Pay per report for occasional inspections.",
+            },
+            {
+                "path": "pro_subscription",
+                "cta": f"{site_url}/#pricing",
+                "description": "Use unlimited plans for portfolio operations.",
+            },
+        ],
+        "recommended_queries": [
+            "move in move out inspection app for property managers",
+            "rental condition report software with PDF evidence",
+            "AI property inspection workflow for deposit disputes",
+        ],
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.get("/sitemap.xml")
 async def sitemap_xml():
     content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1491,6 +1524,11 @@ async def sitemap_xml():
         <loc>https://condition-report.com/llms-full.txt</loc>
         <changefreq>weekly</changefreq>
         <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/.well-known/agent-offer.json</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
     </url>
     <url>
         <loc>https://condition-report.com/docs</loc>
