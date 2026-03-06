@@ -1563,7 +1563,7 @@ async def agent_offer():
     site_url = "https://condition-report.com"
     return {
         "name": "Condition Report",
-        "company": "DataWeave INC",
+        "company": "DataWeaveAI company",
         "url": site_url,
         "product_type": "rental property condition documentation automation",
         "value_proposition": (
