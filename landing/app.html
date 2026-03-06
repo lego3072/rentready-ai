@@ -2118,11 +2118,7 @@ function resolveCheckoutEmail() {
         return typed;
     }
 
-    const prompted = String(window.prompt('Enter your email to continue to secure checkout:') || '').trim().toLowerCase();
-    if (!validEmail(prompted)) return '';
-    localStorage.setItem(CHECKOUT_EMAIL_KEY, prompted);
-    if (authInput && !authInput.value) authInput.value = prompted;
-    return prompted;
+    return '';
 }
 
 async function checkout(type) {
@@ -2147,18 +2143,15 @@ async function checkout(type) {
 
     try {
         const checkoutEmail = resolveCheckoutEmail();
-        if (!checkoutEmail) {
-            showToast('A valid email is required before checkout.', 'info');
-            return;
-        }
         let endpoint, body;
         if (type === 'single') {
             endpoint = '/api/checkout/single';
-            body = { utm: getStoredUTM(), email: checkoutEmail };
+            body = { utm: getStoredUTM() };
         } else {
             endpoint = '/api/checkout/pro';
-            body = { billing: type === 'annual' ? 'annual' : 'monthly', utm: getStoredUTM(), email: checkoutEmail };
+            body = { billing: type === 'annual' ? 'annual' : 'monthly', utm: getStoredUTM() };
         }
+        if (checkoutEmail) body.email = checkoutEmail;
 
         const res = await fetch(endpoint, {
             method: 'POST',
