@@ -1488,6 +1488,8 @@ Allow: /llms-full.txt
 Allow: /sitemap.xml
 Allow: /docs
 Allow: /openapi.json
+Allow: /.well-known/ai-plugin.json
+Allow: /v1/mcp/tools
 Disallow: /api/
 Disallow: /static/
 
@@ -1588,6 +1590,83 @@ async def agent_offer():
     }
 
 
+@app.get("/.well-known/ai-plugin.json")
+async def ai_plugin():
+    site_url = "https://condition-report.com"
+    return {
+        "schema_version": "v1",
+        "name_for_human": "Condition Report",
+        "name_for_model": "condition_report",
+        "description_for_human": "Generate move-in and move-out condition reports from room photos.",
+        "description_for_model": (
+            "Property condition reporting API for rental workflows. Upload room photos, analyze condition, "
+            "generate PDF reports, and share evidence-ready outputs."
+        ),
+        "api": {"type": "openapi", "url": f"{site_url}/openapi.json"},
+        "auth": {"type": "service_http", "authorization_type": "bearer"},
+        "logo_url": f"{site_url}/apple-touch-icon.png",
+        "contact_email": "joseph@dataweaveai.com",
+        "legal_info_url": f"{site_url}/terms",
+    }
+
+
+@app.get("/v1/mcp/tools")
+async def mcp_tools():
+    return {
+        "tools": [
+            {
+                "name": "get_user_status",
+                "description": "Get plan status, free-trial eligibility, and report access status",
+                "method": "GET",
+                "path": "/api/user/status",
+                "auth": "X-Fingerprint",
+            },
+            {
+                "name": "upload_property_photos",
+                "description": "Upload room photos grouped by room name for condition analysis",
+                "method": "POST",
+                "path": "/api/upload-photos",
+                "auth": "X-Fingerprint",
+            },
+            {
+                "name": "analyze_property_condition",
+                "description": "Analyze uploaded photos and generate room-by-room condition findings",
+                "method": "POST",
+                "path": "/api/analyze",
+                "auth": "X-Fingerprint",
+            },
+            {
+                "name": "download_report_pdf",
+                "description": "Download generated condition report PDF",
+                "method": "GET",
+                "path": "/api/report/{report_id}/pdf",
+                "auth": "X-Fingerprint",
+            },
+            {
+                "name": "share_report_link",
+                "description": "Create a shareable condition report link",
+                "method": "POST",
+                "path": "/api/report/{report_id}/share",
+                "auth": "X-Fingerprint",
+            },
+            {
+                "name": "start_checkout_single",
+                "description": "Create single-report Stripe checkout session",
+                "method": "POST",
+                "path": "/api/checkout/single",
+                "auth": "X-Fingerprint",
+            },
+            {
+                "name": "start_checkout_pro",
+                "description": "Create Pro monthly/annual Stripe checkout session",
+                "method": "POST",
+                "path": "/api/checkout/pro",
+                "auth": "X-Fingerprint",
+            },
+        ]
+    }
+
+
 @app.get("/sitemap.xml")
 async def sitemap_xml():
     content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1619,6 +1698,16 @@ async def sitemap_xml():
     </url>
     <url>
         <loc>https://condition-report.com/.well-known/agent-offer.json</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/.well-known/ai-plugin.json</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>https://condition-report.com/v1/mcp/tools</loc>
         <changefreq>weekly</changefreq>
         <priority>0.8</priority>
     </url>
