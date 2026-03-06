@@ -1991,12 +1991,14 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
     session = stripe.checkout.Session.create(**checkout_params)
     user = get_user(fp)
     buyer_email = buyer_email or user.get("email")
-    await send_checkout_followups(
-        buyer_email=buyer_email,
-        product_label="Single Report",
-        checkout_url=session.url,
-        fingerprint=fp,
-        session_id=session.id,
+    asyncio.create_task(
+        send_checkout_followups(
+            buyer_email=buyer_email,
+            product_label="Single Report",
+            checkout_url=session.url,
+            fingerprint=fp,
+            session_id=session.id,
+        )
     )
     return {"checkout_url": session.url}
 
@@ -2211,12 +2213,14 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     session = stripe.checkout.Session.create(**checkout_params)
     user = get_user(fp)
     buyer_email = buyer_email or user.get("email")
-    await send_checkout_followups(
-        buyer_email=buyer_email,
-        product_label="Pro Annual" if billing == "annual" else "Pro Monthly",
-        checkout_url=session.url,
-        fingerprint=fp,
-        session_id=session.id,
+    asyncio.create_task(
+        send_checkout_followups(
+            buyer_email=buyer_email,
+            product_label="Pro Annual" if billing == "annual" else "Pro Monthly",
+            checkout_url=session.url,
+            fingerprint=fp,
+            session_id=session.id,
+        )
     )
     return {"checkout_url": session.url}
 
