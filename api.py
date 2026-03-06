@@ -799,6 +799,7 @@ async def send_checkout_followups(
     product_label: str,
     checkout_url: str,
     fingerprint: str,
+    session_id: Optional[str] = None,
 ):
     if buyer_email:
         await send_transactional_email(
@@ -810,8 +811,59 @@ async def send_checkout_followups(
                 f"<p><a href=\"{checkout_url}\">{checkout_url}</a></p>"
             ),
         )
+    if FOLLOWUP_INBOX_EMAIL:
+        await send_transactional_email(
+            FOLLOWUP_INBOX_EMAIL,
+            f"Condition Report checkout started: {product_label}",
+            (
+                f"<p><b>Checkout started</b></p>"
+                f"<p><b>Product:</b> {product_label}</p>"
+                f"<p><b>Email:</b> {buyer_email or '-'}</p>"
+                f"<p><b>Fingerprint:</b> {fingerprint or '-'}</p>"
+                f"<p><b>Session ID:</b> {session_id or '-'}</p>"
+            ),
+        )
+    if session_id and buyer_email:
+        asyncio.create_task(
+            run_abandoned_checkout_sequence(
+                session_id=session_id,
+                buyer_email=buyer_email,
+                product_label=product_label,
+                checkout_url=checkout_url,
+            )
+        )
 
     return
+
+
+async def run_abandoned_checkout_sequence(*, session_id: str, buyer_email: str, product_label: str, checkout_url: str) -> None:
+    touchpoints = [
+        (10 * 60, "10-minute"),
+        (6 * 60 * 60, "6-hour"),
+        (24 * 60 * 60, "24-hour"),
+    ]
+    for delay_seconds, label in touchpoints:
+        await asyncio.sleep(delay_seconds)
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+        except Exception as e:
+            logger.error(f"Abandoned checkout check failed ({session_id}): {e}")
+            return
+
+        payment_status = (session.get("payment_status") or "").lower()
+        status = (session.get("status") or "").lower()
+        if payment_status == "paid" or status in {"complete", "expired"}:
+            return
+
+        await send_transactional_email(
+            buyer_email,
+            f"Complete your {product_label} checkout",
+            (
+                f"<h2>Your checkout is still open</h2>"
+                f"<p>{label} reminder: complete checkout to activate <b>{product_label}</b>.</p>"
+                f"<p><a href=\"{checkout_url}\">{checkout_url}</a></p>"
+            ),
+        )
 
 
 async def send_paid_sms_alert(message: str) -> bool:
@@ -1915,24 +1967,36 @@ async def get_report(report_id: str, request: Request, x_fingerprint: Optional[s
 async def checkout_single(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create Stripe checkout for a single report."""
     fp = get_fingerprint(request, x_fingerprint)
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    buyer_email = ""
+    if isinstance(body, dict):
+        candidate_email = (body.get("email") or "").strip().lower()
+        if "@" in candidate_email and len(candidate_email) <= 254:
+            buyer_email = candidate_email
 
     if not STRIPE_PRICE_SINGLE:
         raise HTTPException(500, "Stripe not configured — single report price missing")
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{"price": STRIPE_PRICE_SINGLE, "quantity": 1}],
-        mode="payment",
-        success_url=f"{BASE_URL}?payment=success&type=single&session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{BASE_URL}?payment=cancelled",
-        metadata={"fingerprint": fp, "type": "single"},
-    )
+    checkout_params = {
+        "payment_method_types": ["card"],
+        "line_items": [{"price": STRIPE_PRICE_SINGLE, "quantity": 1}],
+        "mode": "payment",
+        "success_url": f"{BASE_URL}?payment=success&type=single&session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{BASE_URL}?payment=cancelled",
+        "metadata": {"fingerprint": fp, "type": "single"},
+    }
+    if buyer_email:
+        checkout_params["customer_email"] = buyer_email
+
+    session = stripe.checkout.Session.create(**checkout_params)
     user = get_user(fp)
+    buyer_email = buyer_email or user.get("email")
     await send_checkout_followups(
-        buyer_email=user.get("email"),
+        buyer_email=buyer_email,
         product_label="Single Report",
         checkout_url=session.url,
         fingerprint=fp,
+        session_id=session.id,
     )
     return {"checkout_url": session.url}
 
@@ -2121,6 +2185,11 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     fp = get_fingerprint(request, x_fingerprint)
     body = await request.json()
     billing = body.get("billing", "monthly")
+    buyer_email = ""
+    if isinstance(body, dict):
+        candidate_email = (body.get("email") or "").strip().lower()
+        if "@" in candidate_email and len(candidate_email) <= 254:
+            buyer_email = candidate_email
 
     price_id = STRIPE_PRICE_MONTHLY if billing == "monthly" else STRIPE_PRICE_ANNUAL
     if not price_id:
@@ -2128,20 +2197,26 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
 
     # Annual = one-time payment (charged once), Monthly = recurring subscription
     checkout_mode = "payment" if billing == "annual" else "subscription"
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
-        mode=checkout_mode,
-        success_url=f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}&session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{BASE_URL}?payment=cancelled",
-        metadata={"fingerprint": fp, "type": "pro"},
-    )
+    checkout_params = {
+        "payment_method_types": ["card"],
+        "line_items": [{"price": price_id, "quantity": 1}],
+        "mode": checkout_mode,
+        "success_url": f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}&session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{BASE_URL}?payment=cancelled",
+        "metadata": {"fingerprint": fp, "type": "pro"},
+    }
+    if buyer_email:
+        checkout_params["customer_email"] = buyer_email
+
+    session = stripe.checkout.Session.create(**checkout_params)
     user = get_user(fp)
+    buyer_email = buyer_email or user.get("email")
     await send_checkout_followups(
-        buyer_email=user.get("email"),
+        buyer_email=buyer_email,
         product_label="Pro Annual" if billing == "annual" else "Pro Monthly",
         checkout_url=session.url,
         fingerprint=fp,
+        session_id=session.id,
     )
     return {"checkout_url": session.url}
 

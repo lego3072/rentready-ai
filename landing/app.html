@@ -1212,6 +1212,7 @@ let rooms = [];
 let currentReportId = null;
 let viewingResults = false;
 let userStatus = null;
+const CHECKOUT_EMAIL_KEY = 'cr_checkout_email';
 
 function generateFingerprint() {
     const fp = 'rr_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -1259,10 +1260,32 @@ function getStoredUTM() {
     return utm;
 }
 
+async function sendAttributionTouch() {
+    try {
+        const utm = getStoredUTM();
+        await fetch('/api/attribution/touch', {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify({
+                event_type: 'touch',
+                landing_url: window.location.href,
+                referrer: document.referrer || '',
+                utm_source: utm.utm_source || '',
+                utm_medium: utm.utm_medium || '',
+                utm_campaign: utm.utm_campaign || '',
+                utm_term: utm.utm_term || ''
+            })
+        });
+    } catch (e) {
+        // Best effort attribution logging only
+    }
+}
+
 // --- Init ---
 async function init() {
     // Capture UTM parameters on landing
     captureUTM();
+    await sendAttributionTouch();
 
     // Check for payment result
     const params = new URLSearchParams(window.location.search);
@@ -2038,6 +2061,31 @@ async function doShareReport() {
 }
 
 // --- Checkout ---
+function validEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function resolveCheckoutEmail() {
+    const accountEmail = accountData && accountData.email ? String(accountData.email).trim().toLowerCase() : '';
+    if (validEmail(accountEmail)) return accountEmail;
+
+    const stored = (localStorage.getItem(CHECKOUT_EMAIL_KEY) || '').trim().toLowerCase();
+    if (validEmail(stored)) return stored;
+
+    const authInput = document.getElementById('auth-email');
+    const typed = authInput ? String(authInput.value || '').trim().toLowerCase() : '';
+    if (validEmail(typed)) {
+        localStorage.setItem(CHECKOUT_EMAIL_KEY, typed);
+        return typed;
+    }
+
+    const prompted = String(window.prompt('Enter your email to continue to secure checkout:') || '').trim().toLowerCase();
+    if (!validEmail(prompted)) return '';
+    localStorage.setItem(CHECKOUT_EMAIL_KEY, prompted);
+    if (authInput && !authInput.value) authInput.value = prompted;
+    return prompted;
+}
+
 async function checkout(type) {
     // Fire Google Ads "begin_checkout" event
     if (typeof gtag === 'function') {
@@ -2051,13 +2099,18 @@ async function checkout(type) {
     }
 
     try {
+        const checkoutEmail = resolveCheckoutEmail();
+        if (!checkoutEmail) {
+            showToast('A valid email is required before checkout.', 'info');
+            return;
+        }
         let endpoint, body;
         if (type === 'single') {
             endpoint = '/api/checkout/single';
-            body = { utm: getStoredUTM() };
+            body = { utm: getStoredUTM(), email: checkoutEmail };
         } else {
             endpoint = '/api/checkout/pro';
-            body = { billing: type === 'annual' ? 'annual' : 'monthly', utm: getStoredUTM() };
+            body = { billing: type === 'annual' ? 'annual' : 'monthly', utm: getStoredUTM(), email: checkoutEmail };
         }
 
         const res = await fetch(endpoint, {
@@ -2161,6 +2214,8 @@ async function submitAuth() {
         errEl.style.display = 'block';
         return;
     }
+
+    if (validEmail(email)) localStorage.setItem(CHECKOUT_EMAIL_KEY, email.toLowerCase());
     if (password.length < 6) {
         errEl.textContent = 'Password must be at least 6 characters';
         errEl.style.display = 'block';
