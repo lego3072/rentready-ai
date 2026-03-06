@@ -80,6 +80,7 @@ All set in Railway dashboard (or `.env` for local dev):
 | `STRIPE_PRICE_ANNUAL` | Stripe Price ID for $249/yr Pro |
 | `RESEND_API_KEY` | Resend API key (scoped to condition-report.com domain!) |
 | `BASE_URL` | `https://condition-report.com` (used for email links, share URLs) |
+| `FREE_TRIAL_MAX_ROOMS` | Optional cap for first free report rooms (default: `12`) |
 | `DATABASE_URL` | PostgreSQL connection string (auto-set by Railway) |
 
 **Critical**: The Resend API key MUST be scoped to the `condition-report.com` domain. A key scoped to a different domain (e.g., dataweaveai.com) will get 403 errors on email send.
@@ -331,7 +332,7 @@ cr_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
 
 ### Who Can Generate Reports
 ```
-Free trial: 1 report (max 4 rooms), no signup required
+Free trial: 1 report (max 12 rooms by default, configurable), no signup required
 Single purchase: +1 report per $4.99 purchase
 Pro: Unlimited reports
 ```
@@ -343,7 +344,7 @@ Pro: Unlimited reports
 ```python
 def check_access(user):
     if user["is_pro"]: return {"allowed": True, "reason": "pro"}
-    if user["reports_used"] == 0: return {"allowed": True, "reason": "free_trial", "max_rooms": 4}
+    if user["reports_used"] == 0: return {"allowed": True, "reason": "free_trial", "max_rooms": FREE_TRIAL_MAX_ROOMS}
     if user["single_reports_purchased"] > user["reports_used"] - 1:
         return {"allowed": True, "reason": "purchased"}
     return {"allowed": False, "reason": "limit_reached"}

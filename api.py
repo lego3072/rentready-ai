@@ -65,6 +65,10 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
 TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "").strip()
 ALERT_SMS_TO = os.getenv("ALERT_SMS_TO", "").strip()
+try:
+    FREE_TRIAL_MAX_ROOMS = max(1, int(os.getenv("FREE_TRIAL_MAX_ROOMS", "12")))
+except ValueError:
+    FREE_TRIAL_MAX_ROOMS = 12
 
 stripe.api_key = STRIPE_SECRET_KEY
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -914,9 +918,9 @@ def check_access(user: dict) -> dict:
     if user["is_pro"]:
         return {"allowed": True, "reason": "pro"}
 
-    # Free trial: 1 report (4 rooms max)
+    # Free trial: 1 report (room cap configurable via FREE_TRIAL_MAX_ROOMS)
     if user["reports_used"] == 0:
-        return {"allowed": True, "reason": "free_trial", "max_rooms": 4}
+        return {"allowed": True, "reason": "free_trial", "max_rooms": FREE_TRIAL_MAX_ROOMS}
 
     # Purchased single reports
     reports_remaining = user["single_reports_purchased"] - (user["reports_used"] - 1)  # -1 for free trial
@@ -1806,9 +1810,11 @@ async def analyze_report(
     if not rooms_data:
         raise HTTPException(400, "No rooms to analyze")
 
-    # Free trial: max 4 rooms
-    if access.get("reason") == "free_trial" and len(rooms_data) > 4:
-        rooms_data = rooms_data[:4]
+    # Free trial: enforce configurable room cap for first report
+    if access.get("reason") == "free_trial":
+        max_rooms = int(access.get("max_rooms") or FREE_TRIAL_MAX_ROOMS)
+        if len(rooms_data) > max_rooms:
+            rooms_data = rooms_data[:max_rooms]
 
     # Prepare room data for parallel analysis
     rooms_to_analyze = []
