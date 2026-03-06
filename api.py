@@ -61,6 +61,10 @@ STRIPE_PRICE_ANNUAL = os.getenv("STRIPE_PRICE_ANNUAL", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "").strip()
 FOLLOWUP_INBOX_EMAIL = os.getenv("FOLLOWUP_INBOX_EMAIL", "joseph@dataweaveai.com").strip()
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "").strip()
+ALERT_SMS_TO = os.getenv("ALERT_SMS_TO", "").strip()
 
 stripe.api_key = STRIPE_SECRET_KEY
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -807,17 +811,49 @@ async def send_checkout_followups(
             ),
         )
 
+    return
+
+
+async def send_paid_sms_alert(message: str) -> bool:
+    if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER and ALERT_SMS_TO and message):
+        return False
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json",
+                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                data={
+                    "From": TWILIO_FROM_NUMBER,
+                    "To": ALERT_SMS_TO,
+                    "Body": message[:1500],
+                },
+                timeout=10,
+            )
+            return 200 <= resp.status_code < 300
+    except Exception as e:
+        logger.error(f"Twilio SMS send error: {e}")
+        return False
+
+
+async def send_paid_conversion_alert(*, product_label: str, buyer_email: str, fingerprint: str, session_id: str, amount_cents: Optional[int]):
+    safe_email = buyer_email or "-"
+    amount_text = f"${(amount_cents or 0) / 100:.2f}" if amount_cents is not None else "n/a"
     if FOLLOWUP_INBOX_EMAIL:
         await send_transactional_email(
             FOLLOWUP_INBOX_EMAIL,
-            f"Condition Report checkout started: {product_label}",
+            f"Condition Report payment completed: {product_label}",
             (
-                f"<p><b>Checkout started</b></p>"
-                f"<p><b>Email:</b> {buyer_email or '-'}</p>"
-                f"<p><b>Fingerprint:</b> {fingerprint}</p>"
-                f"<p><b>Checkout URL:</b> <a href=\"{checkout_url}\">{checkout_url}</a></p>"
+                f"<p><b>Payment completed</b></p>"
+                f"<p><b>Product:</b> {product_label}</p>"
+                f"<p><b>Email:</b> {safe_email}</p>"
+                f"<p><b>Fingerprint:</b> {fingerprint or '-'}</p>"
+                f"<p><b>Amount:</b> {amount_text}</p>"
+                f"<p><b>Session ID:</b> {session_id}</p>"
             ),
         )
+    await send_paid_sms_alert(
+        f"Condition Report paid: {product_label}, {safe_email}, {amount_text}, session {session_id}"
+    )
 
 
 def check_access(user: dict) -> dict:
@@ -1953,6 +1989,15 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
         email=(session.get("customer_details", {}) or {}).get("email"),
         metadata={"purchase_type": purchase_type, "session_id": session_id, "product": "condition-report"},
     )
+    buyer_email = (session.get("customer_details", {}) or {}).get("email") or (get_user(fp).get("email") or "")
+    product_label = "Single Report" if purchase_type == "single" else "Pro Plan"
+    await send_paid_conversion_alert(
+        product_label=product_label,
+        buyer_email=buyer_email,
+        fingerprint=fp,
+        session_id=session_id,
+        amount_cents=session.get("amount_total"),
+    )
     return {"verified": True, "type": purchase_type}
 
 
@@ -2213,6 +2258,15 @@ async def stripe_webhook(request: Request):
                         rollback_processed_session(stripe_session_id)
                         logger.error(f"webhook: failed to activate pro plan for {fp[:12]}...")
                         raise HTTPException(500, "Failed to activate pro plan")
+                buyer_email = (session.get("customer_details", {}) or {}).get("email") or (get_user(fp).get("email") or "")
+                product_label = "Single Report" if purchase_type == "single" else "Pro Plan"
+                await send_paid_conversion_alert(
+                    product_label=product_label,
+                    buyer_email=buyer_email,
+                    fingerprint=fp,
+                    session_id=stripe_session_id,
+                    amount_cents=session.get("amount_total"),
+                )
 
     elif event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
