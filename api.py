@@ -70,6 +70,12 @@ try:
     FREE_TRIAL_MAX_ROOMS = max(1, int(os.getenv("FREE_TRIAL_MAX_ROOMS", "12")))
 except ValueError:
     FREE_TRIAL_MAX_ROOMS = 12
+try:
+    FREE_TRIAL_REPORTS = max(0, int(os.getenv("FREE_TRIAL_REPORTS", "0")))
+except ValueError:
+    FREE_TRIAL_REPORTS = 0
+REQUIRE_PAID_ANALYSIS = os.getenv("REQUIRE_PAID_ANALYSIS", "true").strip().lower() in {"1", "true", "yes", "on"}
+ANALYZE_RATE_LIMIT = os.getenv("ANALYZE_RATE_LIMIT", "60/day;10/minute")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
@@ -957,16 +963,25 @@ def check_access(user: dict) -> dict:
     if user["is_pro"]:
         return {"allowed": True, "reason": "pro"}
 
-    # Free trial: 1 report (room cap configurable via FREE_TRIAL_MAX_ROOMS)
-    if user["reports_used"] == 0:
-        return {"allowed": True, "reason": "free_trial", "max_rooms": FREE_TRIAL_MAX_ROOMS}
+    reports_used = int(user.get("reports_used") or 0)
+    purchased = int(user.get("single_reports_purchased") or 0)
+
+    # Optional free trial path (disabled by default for cost control).
+    if not REQUIRE_PAID_ANALYSIS and FREE_TRIAL_REPORTS > 0 and reports_used < FREE_TRIAL_REPORTS:
+        return {
+            "allowed": True,
+            "reason": "free_trial",
+            "remaining": FREE_TRIAL_REPORTS - reports_used,
+            "max_rooms": FREE_TRIAL_MAX_ROOMS,
+        }
 
     # Purchased single reports
-    reports_remaining = user["single_reports_purchased"] - (user["reports_used"] - 1)  # -1 for free trial
+    consumed_paid = reports_used - (FREE_TRIAL_REPORTS if not REQUIRE_PAID_ANALYSIS else 0)
+    reports_remaining = purchased - max(0, consumed_paid)
     if reports_remaining > 0:
         return {"allowed": True, "reason": "single_purchase", "remaining": reports_remaining}
 
-    return {"allowed": False, "reason": "limit_reached"}
+    return {"allowed": False, "reason": "paid_required", "message": "Paid plan or purchased reports required"}
 
 
 def encode_image(image_bytes: bytes) -> str:
@@ -1912,7 +1927,7 @@ async def upload_photos(
 
 
 @app.post("/api/analyze")
-@limiter.limit("10/minute")
+@limiter.limit(ANALYZE_RATE_LIMIT)
 async def analyze_report(
     request: Request,
     x_fingerprint: Optional[str] = Header(None),
