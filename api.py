@@ -77,6 +77,10 @@ except ValueError:
 STRICT_PAID_API = os.getenv("STRICT_PAID_API", "true").strip().lower() in {"1", "true", "yes", "on"}
 REQUIRE_PAID_ANALYSIS = True if STRICT_PAID_API else (os.getenv("REQUIRE_PAID_ANALYSIS", "true").strip().lower() in {"1", "true", "yes", "on"})
 ANALYZE_RATE_LIMIT = os.getenv("ANALYZE_RATE_LIMIT", "60/day;10/minute")
+MARGIN_FLOOR = max(0.0, min(0.99, float(os.getenv("MARGIN_FLOOR", "0.90"))))
+ESTIMATED_API_COST_PER_REPORT_USD = max(0.0, float(os.getenv("ESTIMATED_API_COST_PER_REPORT_USD", "0.03")))
+PRO_PRICE_USD = max(0.0, float(os.getenv("PRO_PRICE_USD", "99")))
+PRO_MONTHLY_REPORT_CAP = max(0, int(os.getenv("PRO_MONTHLY_REPORT_CAP", "0")))
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
@@ -163,6 +167,15 @@ try:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(fingerprint)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS monthly_usage (
+                        fingerprint VARCHAR(255) NOT NULL,
+                        period_key VARCHAR(7) NOT NULL,
+                        reports_used INTEGER DEFAULT 0,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (fingerprint, period_key)
                     )
                 """)
 
@@ -334,6 +347,7 @@ except ImportError:
 # --- In-memory fallback ---
 users_db: dict = {}
 reports_db: dict = {}
+monthly_usage_db: dict[tuple[str, str], int] = {}
 
 app = FastAPI(title="Condition Report", version="1.0.0")
 
@@ -562,6 +576,73 @@ def get_user(fingerprint: str) -> dict:
     return users_db[fingerprint]
 
 
+def current_period_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def pro_monthly_report_cap() -> int:
+    if PRO_MONTHLY_REPORT_CAP > 0:
+        return PRO_MONTHLY_REPORT_CAP
+    if ESTIMATED_API_COST_PER_REPORT_USD <= 0:
+        return 1_000_000
+    budget = PRO_PRICE_USD * max(0.0, 1.0 - MARGIN_FLOOR)
+    return max(1, int(budget / ESTIMATED_API_COST_PER_REPORT_USD))
+
+
+def get_monthly_reports_used(fingerprint: str) -> int:
+    period = current_period_key()
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT reports_used FROM monthly_usage WHERE fingerprint = %s AND period_key = %s",
+                (fingerprint, period),
+            )
+            row = cur.fetchone()
+            cur.close()
+            return int(row[0]) if row else 0
+        except Exception:
+            return 0
+        finally:
+            if conn:
+                release_db_connection(conn)
+    return int(monthly_usage_db.get((fingerprint, period), 0))
+
+
+def increment_monthly_reports_used(fingerprint: str, amount: int = 1) -> None:
+    units = max(1, int(amount or 1))
+    period = current_period_key()
+    if POSTGRES_AVAILABLE:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO monthly_usage (fingerprint, period_key, reports_used, updated_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (fingerprint, period_key)
+                DO UPDATE SET
+                    reports_used = monthly_usage.reports_used + EXCLUDED.reports_used,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (fingerprint, period, units),
+            )
+            conn.commit()
+            cur.close()
+        except Exception:
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                release_db_connection(conn)
+        return
+
+    monthly_usage_db[(fingerprint, period)] = int(monthly_usage_db.get((fingerprint, period), 0)) + units
+
+
 def get_user_reports(fingerprint: str) -> list:
     """Get user's reports from DB."""
     if POSTGRES_AVAILABLE:
@@ -614,6 +695,17 @@ def save_report_to_db(report_data: dict, fingerprint: str):
                 UPDATE users SET reports_used = reports_used + 1, updated_at = CURRENT_TIMESTAMP
                 WHERE fingerprint = %s
             """, (fingerprint,))
+            cur.execute(
+                """
+                INSERT INTO monthly_usage (fingerprint, period_key, reports_used, updated_at)
+                VALUES (%s, %s, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT (fingerprint, period_key)
+                DO UPDATE SET
+                    reports_used = monthly_usage.reports_used + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (fingerprint, current_period_key()),
+            )
             conn.commit()
             cur.close()
         except Exception as e:
@@ -960,9 +1052,21 @@ async def send_paid_conversion_alert(*, product_label: str, buyer_email: str, fi
 
 def check_access(user: dict) -> dict:
     """Check if user can generate a report. Returns {allowed, reason}."""
-    # Pro users: unlimited
+    # Pro users: capped monthly to enforce cost floor.
     if user["is_pro"]:
-        return {"allowed": True, "reason": "pro"}
+        fingerprint = user.get("fingerprint", "")
+        used_this_month = get_monthly_reports_used(fingerprint) if fingerprint else 0
+        monthly_cap = pro_monthly_report_cap()
+        remaining = max(0, monthly_cap - used_this_month)
+        if remaining <= 0:
+            return {
+                "allowed": False,
+                "reason": "monthly_cost_cap_reached",
+                "message": "Monthly plan usage cap reached for current plan.",
+                "remaining": 0,
+                "monthly_cap": monthly_cap,
+            }
+        return {"allowed": True, "reason": "pro", "remaining": remaining, "monthly_cap": monthly_cap}
 
     reports_used = int(user.get("reports_used") or 0)
     purchased = int(user.get("single_reports_purchased") or 0)
@@ -2013,6 +2117,7 @@ async def analyze_report(
     if not POSTGRES_AVAILABLE:
         user["reports"].append(report_data)
         user["reports_used"] += 1
+        increment_monthly_reports_used(fp, 1)
 
     return {
         "report_id": report_id,
