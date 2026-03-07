@@ -74,7 +74,8 @@ try:
     FREE_TRIAL_REPORTS = max(0, int(os.getenv("FREE_TRIAL_REPORTS", "0")))
 except ValueError:
     FREE_TRIAL_REPORTS = 0
-REQUIRE_PAID_ANALYSIS = os.getenv("REQUIRE_PAID_ANALYSIS", "true").strip().lower() in {"1", "true", "yes", "on"}
+STRICT_PAID_API = os.getenv("STRICT_PAID_API", "true").strip().lower() in {"1", "true", "yes", "on"}
+REQUIRE_PAID_ANALYSIS = True if STRICT_PAID_API else (os.getenv("REQUIRE_PAID_ANALYSIS", "true").strip().lower() in {"1", "true", "yes", "on"})
 ANALYZE_RATE_LIMIT = os.getenv("ANALYZE_RATE_LIMIT", "60/day;10/minute")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
