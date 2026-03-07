@@ -876,6 +876,7 @@ async def send_checkout_followups(
 
 
 async def run_abandoned_checkout_sequence(*, session_id: str, buyer_email: str, product_label: str, checkout_url: str) -> None:
+    app_fallback_url = f"{BASE_URL}/app"
     touchpoints = [
         (10 * 60, "10-minute"),
         (6 * 60 * 60, "6-hour"),
@@ -901,6 +902,9 @@ async def run_abandoned_checkout_sequence(*, session_id: str, buyer_email: str, 
                 f"<h2>Your checkout is still open</h2>"
                 f"<p>{label} reminder: complete checkout to activate <b>{product_label}</b>.</p>"
                 f"<p><a href=\"{checkout_url}\">{checkout_url}</a></p>"
+                f"<p>If that link fails, reopen the app checkout here: <a href=\"{app_fallback_url}\">{app_fallback_url}</a></p>"
+                f"<p><b>Why teams close quickly:</b> direct Stripe checkout, immediate plan activation, and same-day report workflow access.</p>"
+                f"<p><b>Priority window:</b> complete in the next 24 hours for fastest onboarding queue.</p>"
             ),
         )
 
