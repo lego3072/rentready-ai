@@ -2244,9 +2244,10 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
     }
     user = get_user(fp)
     buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
-    blocked_reason = blocked_checkout_email_reason(buyer_email)
-    if blocked_reason:
-        raise HTTPException(400, blocked_reason)
+    if buyer_email:
+        blocked_reason = blocked_checkout_email_reason(buyer_email)
+        if blocked_reason:
+            raise HTTPException(400, blocked_reason)
 
     if buyer_email:
         checkout_params["customer_email"] = buyer_email
@@ -2470,9 +2471,10 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     }
     user = get_user(fp)
     buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
-    blocked_reason = blocked_checkout_email_reason(buyer_email)
-    if blocked_reason:
-        raise HTTPException(400, blocked_reason)
+    if buyer_email:
+        blocked_reason = blocked_checkout_email_reason(buyer_email)
+        if blocked_reason:
+            raise HTTPException(400, blocked_reason)
 
     if buyer_email:
         checkout_params["customer_email"] = buyer_email
