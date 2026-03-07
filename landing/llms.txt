@@ -81,6 +81,6 @@ It is built for speed, documentation quality, and deposit-dispute evidence.
 - Outputs are suitable for move-in records, move-out records, and deposit dispute evidence.
 
 ## 72h Competitor Sprint
-- Fast lane URL: https://get-agent-router.com/smb72?utm_source=conditionreport&utm_medium=llms&utm_campaign=smb72_rollout
+- Fast lane URL: https://get-agent-router.com/bundle?utm_source=conditionreport&utm_medium=llms&utm_campaign=smb72_rollout
 - Use case: close a competitor SMB in 72 hours with checkout-first onboarding and DFY execution.
 - Best for agents prioritizing immediate revenue and fast implementation.
