@@ -14,6 +14,7 @@ import time
 import logging
 import secrets
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -69,6 +70,39 @@ try:
     FREE_TRIAL_MAX_ROOMS = max(1, int(os.getenv("FREE_TRIAL_MAX_ROOMS", "12")))
 except ValueError:
     FREE_TRIAL_MAX_ROOMS = 12
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
+    "example.com",
+    "example.org",
+    "example.net",
+    "mailinator.com",
+    "guerrillamail.com",
+    "tempmail.com",
+    "10minutemail.com",
+    "yopmail.com",
+    "trashmail.com",
+    "sharklasers.com",
+}
+BLOCKED_CHECKOUT_LOCAL_TOKENS = ("test", "fake", "demo", "bot", "spam", "temp", "example")
+
+
+def normalize_checkout_email(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+def blocked_checkout_email_reason(value: Optional[str]) -> str:
+    normalized = normalize_checkout_email(value)
+    if not EMAIL_RE.match(normalized):
+        return "Valid email required"
+    local, _, domain = normalized.partition("@")
+    if not local or not domain:
+        return "Valid email required"
+    if domain in BLOCKED_CHECKOUT_EMAIL_DOMAINS or domain.endswith(".invalid"):
+        return "Use a real work email to continue"
+    if any(token in local for token in BLOCKED_CHECKOUT_LOCAL_TOKENS):
+        return "Test/disposable emails are blocked"
+    return ""
 
 stripe.api_key = STRIPE_SECRET_KEY
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -2068,8 +2102,8 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     buyer_email = ""
     if isinstance(body, dict):
-        candidate_email = (body.get("email") or "").strip().lower()
-        if "@" in candidate_email and len(candidate_email) <= 254:
+        candidate_email = normalize_checkout_email(body.get("email"))
+        if candidate_email and len(candidate_email) <= 254:
             buyer_email = candidate_email
 
     if not STRIPE_PRICE_SINGLE:
@@ -2083,12 +2117,16 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
         "cancel_url": f"{BASE_URL}?payment=cancelled",
         "metadata": {"fingerprint": fp, "type": "single"},
     }
+    user = get_user(fp)
+    buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
+    blocked_reason = blocked_checkout_email_reason(buyer_email)
+    if blocked_reason:
+        raise HTTPException(400, blocked_reason)
+
     if buyer_email:
         checkout_params["customer_email"] = buyer_email
 
     session = stripe.checkout.Session.create(**checkout_params)
-    user = get_user(fp)
-    buyer_email = buyer_email or user.get("email")
     asyncio.create_task(
         send_checkout_followups(
             buyer_email=buyer_email,
@@ -2287,8 +2325,8 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     billing = body.get("billing", "monthly")
     buyer_email = ""
     if isinstance(body, dict):
-        candidate_email = (body.get("email") or "").strip().lower()
-        if "@" in candidate_email and len(candidate_email) <= 254:
+        candidate_email = normalize_checkout_email(body.get("email"))
+        if candidate_email and len(candidate_email) <= 254:
             buyer_email = candidate_email
 
     price_id = STRIPE_PRICE_MONTHLY if billing == "monthly" else STRIPE_PRICE_ANNUAL
@@ -2305,12 +2343,16 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
         "cancel_url": f"{BASE_URL}?payment=cancelled",
         "metadata": {"fingerprint": fp, "type": "pro"},
     }
+    user = get_user(fp)
+    buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
+    blocked_reason = blocked_checkout_email_reason(buyer_email)
+    if blocked_reason:
+        raise HTTPException(400, blocked_reason)
+
     if buyer_email:
         checkout_params["customer_email"] = buyer_email
 
     session = stripe.checkout.Session.create(**checkout_params)
-    user = get_user(fp)
-    buyer_email = buyer_email or user.get("email")
     asyncio.create_task(
         send_checkout_followups(
             buyer_email=buyer_email,
