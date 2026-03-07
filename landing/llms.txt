@@ -49,6 +49,12 @@ It is built for speed, documentation quality, and deposit-dispute evidence.
 - Agent offer: https://condition-report.com/.well-known/agent-offer.json
 - AI plugin manifest: https://condition-report.com/.well-known/ai-plugin.json
 
+## Post-Payment And Dashboard Access
+- App dashboard: https://condition-report.com/ (and https://condition-report.com/app)
+- Paid access verification endpoint: https://condition-report.com/api/verify-payment
+- Account profile endpoint: https://condition-report.com/api/account/profile
+- Report access endpoints: /api/report/{report_id} and /api/report/{report_id}/pdf
+
 ## Pricing Snapshot
 - 1 free trial report
 - $9.99 single report
