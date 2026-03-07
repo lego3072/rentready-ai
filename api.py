@@ -77,7 +77,7 @@ except ValueError:
 STRICT_PAID_API = os.getenv("STRICT_PAID_API", "true").strip().lower() in {"1", "true", "yes", "on"}
 REQUIRE_PAID_ANALYSIS = True if STRICT_PAID_API else (os.getenv("REQUIRE_PAID_ANALYSIS", "true").strip().lower() in {"1", "true", "yes", "on"})
 ANALYZE_RATE_LIMIT = os.getenv("ANALYZE_RATE_LIMIT", "60/day;10/minute")
-MARGIN_FLOOR = max(0.0, min(0.99, float(os.getenv("MARGIN_FLOOR", "0.90"))))
+MARGIN_FLOOR = max(0.0, min(0.99, float(os.getenv("MARGIN_FLOOR", "0.80"))))
 ESTIMATED_API_COST_PER_REPORT_USD = max(0.0, float(os.getenv("ESTIMATED_API_COST_PER_REPORT_USD", "0.03")))
 PRO_PRICE_USD = max(0.0, float(os.getenv("PRO_PRICE_USD", "99")))
 PRO_MONTHLY_REPORT_CAP = max(0, int(os.getenv("PRO_MONTHLY_REPORT_CAP", "0")))
