@@ -71,16 +71,16 @@ try:
 except ValueError:
     FREE_TRIAL_MAX_ROOMS = 12
 try:
-    FREE_TRIAL_REPORTS = max(0, int(os.getenv("FREE_TRIAL_REPORTS", "0")))
+    FREE_TRIAL_REPORTS = max(0, int(os.getenv("FREE_TRIAL_REPORTS", "1")))
 except ValueError:
-    FREE_TRIAL_REPORTS = 0
+    FREE_TRIAL_REPORTS = 1
 STRICT_PAID_API = os.getenv("STRICT_PAID_API", "true").strip().lower() in {"1", "true", "yes", "on"}
 REQUIRE_PAID_ANALYSIS = True if STRICT_PAID_API else (os.getenv("REQUIRE_PAID_ANALYSIS", "true").strip().lower() in {"1", "true", "yes", "on"})
 ANALYZE_RATE_LIMIT = os.getenv("ANALYZE_RATE_LIMIT", "60/day;10/minute")
 MARGIN_FLOOR = max(0.0, min(0.99, float(os.getenv("MARGIN_FLOOR", "0.80"))))
 ESTIMATED_API_COST_PER_REPORT_USD = max(0.0, float(os.getenv("ESTIMATED_API_COST_PER_REPORT_USD", "0.03")))
-PRO_PRICE_USD = max(0.0, float(os.getenv("PRO_PRICE_USD", "99")))
-PRO_MONTHLY_REPORT_CAP = max(0, int(os.getenv("PRO_MONTHLY_REPORT_CAP", "0")))
+PRO_PRICE_USD = max(0.0, float(os.getenv("PRO_PRICE_USD", "39")))
+PRO_MONTHLY_REPORT_CAP = max(0, int(os.getenv("PRO_MONTHLY_REPORT_CAP", "120")))
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
@@ -1071,8 +1071,8 @@ def check_access(user: dict) -> dict:
     reports_used = int(user.get("reports_used") or 0)
     purchased = int(user.get("single_reports_purchased") or 0)
 
-    # Optional free trial path (disabled by default for cost control).
-    if not REQUIRE_PAID_ANALYSIS and FREE_TRIAL_REPORTS > 0 and reports_used < FREE_TRIAL_REPORTS:
+    # First report trial path.
+    if FREE_TRIAL_REPORTS > 0 and reports_used < FREE_TRIAL_REPORTS:
         return {
             "allowed": True,
             "reason": "free_trial",
@@ -1081,7 +1081,7 @@ def check_access(user: dict) -> dict:
         }
 
     # Purchased single reports
-    consumed_paid = reports_used - (FREE_TRIAL_REPORTS if not REQUIRE_PAID_ANALYSIS else 0)
+    consumed_paid = reports_used - FREE_TRIAL_REPORTS
     reports_remaining = purchased - max(0, consumed_paid)
     if reports_remaining > 0:
         return {"allowed": True, "reason": "single_purchase", "remaining": reports_remaining}
@@ -1736,7 +1736,7 @@ async def agent_offer():
             {
                 "path": "pro_subscription",
                 "cta": f"{site_url}/#pricing",
-                "description": "Use unlimited plans for portfolio operations.",
+                "description": "Use capped monthly or annual plans for portfolio operations.",
             },
         ],
         "recommended_queries": [
@@ -1816,7 +1816,7 @@ async def mcp_tools():
             },
             {
                 "name": "start_checkout_pro",
-                "description": "Create Pro monthly/annual Stripe checkout session",
+                "description": "Create Pro monthly or Enterprise annual Stripe checkout session",
                 "method": "POST",
                 "path": "/api/checkout/pro",
                 "auth": "X-Fingerprint",
@@ -2047,7 +2047,7 @@ async def analyze_report(
             status_code=402,
             content={
                 "error": "Report limit reached",
-                "message": "Purchase a single report or upgrade to Pro for unlimited reports.",
+                "message": "Purchase a single report or upgrade to Pro Monthly / Enterprise Annual for capped report volume.",
                 "checkout_url": f"{BASE_URL}/api/checkout/single",
             },
         )
@@ -2483,7 +2483,7 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     asyncio.create_task(
         send_checkout_followups(
             buyer_email=buyer_email,
-            product_label="Pro Annual" if billing == "annual" else "Pro Monthly",
+            product_label="Enterprise Annual" if billing == "annual" else "Pro Monthly",
             checkout_url=session.url,
             fingerprint=fp,
             session_id=session.id,

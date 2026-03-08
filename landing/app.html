@@ -59,7 +59,7 @@
                 {
                     "@type": "Offer",
                     "name": "Pro Monthly",
-                    "description": "Unlimited property condition reports per month",
+                    "description": "Up to 120 property condition reports per month",
                     "availability": "https://schema.org/InStock",
                     "priceSpecification": {
                         "@type": "UnitPriceSpecification",
@@ -71,8 +71,8 @@
                 },
                 {
                     "@type": "Offer",
-                    "name": "Pro Annual",
-                    "description": "Unlimited property condition reports per year — save $119",
+                    "name": "Enterprise Annual",
+                    "description": "Up to 1500 property condition reports per year — save $119",
                     "availability": "https://schema.org/InStock",
                     "priceSpecification": {
                         "@type": "UnitPriceSpecification",
@@ -114,7 +114,7 @@
                 "name": "How much does a condition report cost?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "Your first report is free. After that, single reports are $9.99 each. For property managers with multiple units, Pro plans start at $39/month for unlimited reports."
+                    "text": "Your first report is free. After that, single reports are $9.99 each. For property managers with multiple units, Pro plans start at $39/month with up to 120 reports per month."
                 }
             },
             {
@@ -1024,14 +1024,14 @@
                 <span class="tier-name">Pro Monthly</span>
                 <span class="tier-price">$39/mo</span>
             </div>
-            <div class="tier-desc">Unlimited reports. Cancel anytime.</div>
+            <div class="tier-desc">Up to 120 reports/month. Cancel anytime.</div>
         </div>
         <div class="pricing-tier best" onclick="closePricingModal();checkout('annual')">
             <div class="tier-header">
-                <span class="tier-name">Pro Annual<span class="tier-badge">BEST VALUE</span></span>
+                <span class="tier-name">Enterprise Annual<span class="tier-badge">BEST VALUE</span></span>
                 <span class="tier-price">$349/yr</span>
             </div>
-            <div class="tier-desc">Unlimited reports. Save $119 vs monthly.</div>
+            <div class="tier-desc">Up to 1500 reports/year. Save $119 vs monthly.</div>
         </div>
         <button class="btn-secondary" onclick="closePricingModal()" style="margin-top:12px;width:100%;">Close</button>
     </div>
@@ -1145,14 +1145,14 @@
             <div id="upgrade-banner" class="hidden">
                 <div class="pricing-banner">
                     <h3>Need more reports?</h3>
-                    <p>Your free trial is used. Upgrade for unlimited.</p>
+                    <p>Your free trial is used. Upgrade for higher report caps.</p>
                     <div class="pricing-options">
                         <div class="pricing-option" onclick="checkout('single')">
                             <div class="label">Single Report</div>
                             <div class="price">$9.99</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('pro')">
-                            <div class="label">Unlimited Monthly</div>
+                            <div class="label">Pro Monthly (120/mo)</div>
                             <div class="price">$39/mo</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('annual')">
@@ -1322,7 +1322,7 @@ async function init() {
         const type = params.get('type');
         const sessionId = params.get('session_id');
         window.history.replaceState({}, '', '/');
-        const msg = (type === 'pro' || type === 'annual') ? 'Welcome to Pro! You have unlimited reports.' : 'Payment successful! Your report credit has been added.';
+        const msg = (type === 'pro' || type === 'annual') ? 'Welcome to Pro! You now have a capped monthly report allowance.' : 'Payment successful! Your report credit has been added.';
         showToast(msg, 'success');
 
         // Google Ads conversion tracking
@@ -1769,7 +1769,7 @@ function showHardPaywall() {
             <div style="font-size:48px;margin-bottom:16px;">✅</div>
             <h2 style="margin:0 0 8px;font-size:22px;">You've seen what our AI can do</h2>
             <p style="color:#666;margin:0 0 4px;font-size:15px;">Your free trial has been used.</p>
-            <p style="color:#1a1a2e;margin:0 0 20px;font-size:15px;font-weight:600;">Choose a plan below to download reports, email them, and generate unlimited condition reports.</p>
+            <p style="color:#1a1a2e;margin:0 0 20px;font-size:15px;font-weight:600;">Choose a plan below to download reports, email them, and generate more condition reports within plan caps.</p>
             <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:12px;">
                 <div style="background:#f0f7ff;border:1px solid #2563eb;border-radius:8px;padding:8px 12px;font-size:13px;color:#2563eb;">✓ Download PDF reports</div>
                 <div style="background:#f0f7ff;border:1px solid #2563eb;border-radius:8px;padding:8px 12px;font-size:13px;color:#2563eb;">✓ Email reports</div>
@@ -2129,13 +2129,13 @@ async function checkout(type) {
             'send_to': 'AW-17926414862',
             'value': checkoutValue,
             'currency': 'USD',
-            'items': [{ 'name': type === 'single' ? 'Single Report' : type === 'annual' ? 'Pro Annual' : 'Pro Monthly' }]
+            'items': [{ 'name': type === 'single' ? 'Single Report' : type === 'annual' ? 'Enterprise Annual' : 'Pro Monthly' }]
         });
     }
     if (typeof window.fbq === 'function') {
         const checkoutValue = type === 'single' ? 9.99 : type === 'annual' ? 349.00 : 39.00;
         window.fbq('track', 'InitiateCheckout', {
-            content_name: type === 'single' ? 'Condition Single Report' : type === 'annual' ? 'Condition Pro Annual' : 'Condition Pro Monthly',
+            content_name: type === 'single' ? 'Condition Single Report' : type === 'annual' ? 'Condition Enterprise Annual' : 'Condition Pro Monthly',
             value: checkoutValue,
             currency: 'USD'
         });
@@ -2368,7 +2368,7 @@ async function openProfileModal() {
                 </div>
             ` : `
                 <div style="margin-top:16px;text-align:center;">
-                    <span style="color:#2563eb;font-weight:600;font-size:14px;">Unlimited reports included</span>
+                    <span style="color:#2563eb;font-weight:600;font-size:14px;">Monthly report cap applies</span>
                 </div>
             `}
         `;
@@ -2596,5 +2596,7 @@ checkAccountOnLoad();
   <a class="smb72-cta" href="https://condition-report.com/?utm_source=conditionreport&utm_medium=referral&utm_campaign=smb72_rollout" target="_blank" rel="noopener noreferrer">Launch Sprint</a>
 </div>
 <!-- COMPETITOR_SPRINT_WIDGET_END -->
+<a href="https://dataweaveai.com" class="dwai-company-badge" aria-label="A DataWeaveAI Inc Company">A DataWeaveAI Inc Company</a>
+<style>.dwai-company-badge{position:fixed;top:12px;left:12px;z-index:999;background:rgba(7,19,40,.86);color:#dbeafe;border:1px solid rgba(147,197,253,.38);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;backdrop-filter:blur(6px);text-decoration:none}.dwai-company-badge:hover{color:#fff;border-color:rgba(59,130,246,.7)} (max-width:768px){.dwai-company-badge{top:8px;left:8px;font-size:11px;padding:5px 8px}}</style>
 </body>
 </html>

@@ -29,7 +29,7 @@ It is built for speed, documentation quality, and deposit-dispute evidence.
 
 ## Buyer Paths
 - Start with single report pricing
-- Upgrade to unlimited monthly/annual plans
+- Upgrade to capped monthly/annual plans
 - Request implementation support for team rollout
 
 ## Assistant Guidance
@@ -68,8 +68,8 @@ It is built for speed, documentation quality, and deposit-dispute evidence.
 ## Pricing Snapshot
 - 1 free trial report
 - $9.99 single report
-- $39/month unlimited
-- $349/year unlimited
+- $39/month (up to 120 reports)
+- $349/year (up to 1,500 reports)
 
 ## Canonical URLs
 - Homepage: https://condition-report.com/
