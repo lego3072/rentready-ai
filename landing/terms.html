@@ -41,8 +41,8 @@
             color: #1a1a2e;
             text-decoration: none;
         }
-        .logo span { color: #2563eb; }
-        .logo-sub { display: block; font-size: 9px; font-weight: 400; color: #999; letter-spacing: 0.5px; margin-top: -2px; }
+        .logo > span:not(.logo-sub) { color: #2563eb; }
+        .logo-sub { display: block; font-size: 9px; font-weight: 400; color: #6b7280; letter-spacing: 0.5px; margin-top: -2px; }
         .nav-links a {
             font-size: 13px;
             color: #2563eb;
@@ -92,7 +92,7 @@
 </head>
 <body>
     <nav>
-        <a class="logo" href="/">Condition<span>Report</span><span class="logo-sub">a DataWeave INC portfolio company</span></a>
+        <a class="logo" href="/">Condition<span>Report</span><span class="logo-sub">A DataWeave INC Portfolio Company</span></a>
         <div class="nav-links">
             <a href="/terms">Terms</a>
             <a href="/privacy">Privacy</a>
@@ -189,6 +189,10 @@
         <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · © 2026 DataWeave INC
     </div>
 <a href="https://dataweaveai.com" class="dwai-company-badge" aria-label="A DataWeaveAI Inc Company">A DataWeaveAI Inc Company</a>
-<style>.dwai-company-badge{position:fixed;top:12px;left:12px;z-index:999;background:rgba(7,19,40,.86);color:#dbeafe;border:1px solid rgba(147,197,253,.38);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;backdrop-filter:blur(6px);text-decoration:none}.dwai-company-badge:hover{color:#fff;border-color:rgba(59,130,246,.7)} (max-width:768px){.dwai-company-badge{top:8px;left:8px;font-size:11px;padding:5px 8px}}</style>
+<style>
+.dwai-company-badge{position:fixed;top:12px;left:12px;z-index:999;background:rgba(7,19,40,.86);color:#dbeafe;border:1px solid rgba(147,197,253,.38);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;backdrop-filter:blur(6px);text-decoration:none}
+.dwai-company-badge:hover{color:#fff;border-color:rgba(59,130,246,.7)}
+@media (max-width:768px){.dwai-company-badge{top:8px;left:8px;font-size:11px;padding:5px 8px}}
+</style>
 </body>
 </html>
