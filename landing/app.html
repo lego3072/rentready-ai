@@ -2396,13 +2396,14 @@ async function bootstrapPartnerReferralCode() {
     const ref = (params.get('ref') || '').trim().toLowerCase();
     if (ref !== 'internachi') return;
 
-    activePartnerCode = 'NACHI10';
-    ['modal-partner-code', 'upgrade-partner-code'].forEach((id) => {
+    activePartnerCode = '';
+    ['modal-partner-msg', 'upgrade-partner-msg'].forEach((id) => {
         const el = document.getElementById(id);
-        if (el) el.value = activePartnerCode;
+        if (!el) return;
+        el.style.display = 'block';
+        el.style.color = '#1d4ed8';
+        el.textContent = 'InterNACHI referral detected. Enter your member code to apply discount.';
     });
-    await applyPartnerCode('modal');
-    await applyPartnerCode('upgrade');
 }
 
 async function checkout(type) {
