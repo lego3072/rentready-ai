@@ -59,7 +59,10 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 STRIPE_PRICE_SINGLE = os.getenv("STRIPE_PRICE_SINGLE", "")
 STRIPE_PRICE_MONTHLY = os.getenv("STRIPE_PRICE_MONTHLY", "")
 STRIPE_PRICE_ANNUAL = os.getenv("STRIPE_PRICE_ANNUAL", "")
+STRIPE_PRICE_ENTERPRISE_MONTHLY = os.getenv("STRIPE_PRICE_ENTERPRISE_MONTHLY", "")
+STRIPE_PRICE_ENTERPRISE_ANNUAL = os.getenv("STRIPE_PRICE_ENTERPRISE_ANNUAL", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "").strip()
 FOLLOWUP_INBOX_EMAIL = os.getenv("FOLLOWUP_INBOX_EMAIL", "joseph@dataweaveai.com").strip()
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
@@ -81,6 +84,8 @@ MARGIN_FLOOR = max(0.0, min(0.99, float(os.getenv("MARGIN_FLOOR", "0.90"))))
 ESTIMATED_API_COST_PER_REPORT_USD = max(0.0, float(os.getenv("ESTIMATED_API_COST_PER_REPORT_USD", "0.10")))
 PRO_PRICE_USD = max(0.0, float(os.getenv("PRO_PRICE_USD", "39")))
 PRO_MONTHLY_REPORT_CAP = max(0, int(os.getenv("PRO_MONTHLY_REPORT_CAP", "25")))
+ENTERPRISE_PRICE_USD = max(0.0, float(os.getenv("ENTERPRISE_PRICE_USD", "299")))
+ENTERPRISE_MONTHLY_REPORT_CAP = max(0, int(os.getenv("ENTERPRISE_MONTHLY_REPORT_CAP", "125")))
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
@@ -96,6 +101,7 @@ BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
     "sharklasers.com",
 }
 BLOCKED_CHECKOUT_LOCAL_TOKENS = ("test", "fake", "demo", "bot", "spam", "temp", "example")
+RETIRED_PARTNER_CODES = {"NACHI15"}
 
 
 def normalize_checkout_email(value: Optional[str]) -> str:
@@ -259,6 +265,41 @@ try:
                     )
                 """)
 
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS partner_codes (
+                        code VARCHAR(64) PRIMARY KEY,
+                        org_name VARCHAR(255) NOT NULL,
+                        discount_percent INTEGER DEFAULT 10,
+                        revenue_share_percent INTEGER DEFAULT 10,
+                        active BOOLEAN DEFAULT TRUE,
+                        redemptions INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS partner_redemptions (
+                        id SERIAL PRIMARY KEY,
+                        partner_code VARCHAR(64) NOT NULL,
+                        fingerprint VARCHAR(255) NOT NULL,
+                        email VARCHAR(255),
+                        stripe_session_id VARCHAR(255),
+                        amount_paid INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_partner_redemptions_code_fp ON partner_redemptions(partner_code, fingerprint)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_partner_redemptions_code_email ON partner_redemptions(partner_code, email)")
+
+                # Seed default partner codes for association campaigns.
+                cur.execute(
+                    "INSERT INTO partner_codes (code, org_name, discount_percent, revenue_share_percent) VALUES ('NACHI10', 'International Association of Certified Home Inspectors', 10, 10) ON CONFLICT (code) DO UPDATE SET discount_percent = 10, active = TRUE"
+                )
+                cur.execute(
+                    "INSERT INTO partner_codes (code, org_name, discount_percent, revenue_share_percent) VALUES ('FB15', 'Facebook Community Promo', 15, 0) ON CONFLICT (code) DO UPDATE SET discount_percent = 15, active = TRUE"
+                )
+                cur.execute("UPDATE partner_codes SET active = FALSE WHERE code = 'NACHI15'")
+
                 # Email verification tokens
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS email_verification_tokens (
@@ -379,6 +420,8 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 @app.middleware("http")
 async def https_redirect(request: Request, call_next):
     """Redirect HTTP to HTTPS in production (behind Railway/Cloudflare proxy)."""
+    if request.url.path == "/health":
+        return await call_next(request)
     proto = request.headers.get("x-forwarded-proto", "https")
     if proto == "http" and "localhost" not in str(request.url):
         url = str(request.url).replace("http://", "https://", 1)
@@ -417,6 +460,121 @@ def get_fingerprint(request: Request, x_fingerprint: Optional[str] = None) -> st
         return x_fingerprint
     ip = request.client.host if request.client else "unknown"
     return hashlib.sha256(ip.encode()).hexdigest()[:16]
+
+
+def require_fingerprint(request: Request, x_fingerprint: Optional[str] = None) -> str:
+    """Require browser fingerprint for checkout/coupon flows to reduce abuse."""
+    if x_fingerprint and x_fingerprint.strip():
+        fp = x_fingerprint.strip()
+        if len(fp) < 8 or len(fp) > 128:
+            raise HTTPException(400, "Invalid fingerprint format")
+        if not all(c.isalnum() or c in "-_" for c in fp):
+            raise HTTPException(400, "Invalid fingerprint format")
+        return fp
+    raise HTTPException(
+        status_code=400,
+        detail="X-Fingerprint header is required. Please use the Condition Report app to submit requests.",
+    )
+
+
+def validate_partner_code(code: str) -> Optional[dict]:
+    if not code or not POSTGRES_AVAILABLE:
+        return None
+    alias_map = {
+        "INTERNACHI": "NACHI10",
+        "NACHI": "NACHI10",
+        "FACEBOOK": "FB15",
+        "CONDITIONFB": "FB15",
+    }
+    code = alias_map.get((code or "").strip().upper(), (code or "").strip().upper())
+    if code in RETIRED_PARTNER_CODES:
+        return None
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT code, org_name, discount_percent, revenue_share_percent, active FROM partner_codes WHERE code = %s",
+            (code,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row and row[4]:
+            return {"code": row[0], "org_name": row[1], "discount_percent": row[2], "revenue_share_percent": row[3]}
+        return None
+    except Exception as e:
+        logger.error(f"validate_partner_code error: {e}")
+        return None
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+def partner_code_already_redeemed(code: str, fingerprint: str = "", email: str = "") -> bool:
+    if not code or not POSTGRES_AVAILABLE:
+        return False
+    fingerprint = (fingerprint or "").strip()
+    email = (email or "").strip().lower()
+    if not fingerprint and not email:
+        return False
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        predicates = []
+        params = [code.strip().upper()]
+        if fingerprint:
+            predicates.append("fingerprint = %s")
+            params.append(fingerprint)
+        if email:
+            predicates.append("LOWER(COALESCE(email, '')) = %s")
+            params.append(email)
+        cur.execute(
+            f"""
+            SELECT 1
+            FROM partner_redemptions
+            WHERE partner_code = %s
+              AND ({' OR '.join(predicates)})
+            LIMIT 1
+            """,
+            tuple(params),
+        )
+        row = cur.fetchone()
+        cur.close()
+        return bool(row)
+    except Exception as e:
+        logger.error(f"partner_code_already_redeemed error: {e}")
+        return False
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+def record_partner_redemption(
+    code: str,
+    fingerprint: str,
+    stripe_session_id: str,
+    amount_paid: int,
+    email: str = "",
+):
+    if not POSTGRES_AVAILABLE or not code:
+        return
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO partner_redemptions (partner_code, fingerprint, email, stripe_session_id, amount_paid) VALUES (%s, %s, %s, %s, %s)",
+            (code.strip().upper(), fingerprint, (email or "").strip().lower() or None, stripe_session_id, amount_paid),
+        )
+        cur.execute("UPDATE partner_codes SET redemptions = redemptions + 1 WHERE code = %s", (code.strip().upper(),))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        logger.error(f"record_partner_redemption error: {e}")
+    finally:
+        if conn:
+            release_db_connection(conn)
 
 
 def detect_ai_source(user_agent: str = "", referrer: str = "", utm_source: str = "") -> Optional[str]:
@@ -586,6 +744,15 @@ def pro_monthly_report_cap() -> int:
     if ESTIMATED_API_COST_PER_REPORT_USD <= 0:
         return 1_000_000
     budget = PRO_PRICE_USD * max(0.0, 1.0 - MARGIN_FLOOR)
+    return max(1, int(budget / ESTIMATED_API_COST_PER_REPORT_USD))
+
+
+def enterprise_monthly_report_cap() -> int:
+    if ENTERPRISE_MONTHLY_REPORT_CAP > 0:
+        return ENTERPRISE_MONTHLY_REPORT_CAP
+    if ESTIMATED_API_COST_PER_REPORT_USD <= 0:
+        return 1_000_000
+    budget = ENTERPRISE_PRICE_USD * max(0.0, 1.0 - MARGIN_FLOOR)
     return max(1, int(budget / ESTIMATED_API_COST_PER_REPORT_USD))
 
 
@@ -1052,11 +1219,12 @@ async def send_paid_conversion_alert(*, product_label: str, buyer_email: str, fi
 
 def check_access(user: dict) -> dict:
     """Check if user can generate a report. Returns {allowed, reason}."""
-    # Pro users: capped monthly to enforce cost floor.
-    if user["is_pro"]:
+    # Paid users: capped monthly to enforce cost floor.
+    if user["is_pro"] or user.get("plan") == "enterprise":
         fingerprint = user.get("fingerprint", "")
         used_this_month = get_monthly_reports_used(fingerprint) if fingerprint else 0
-        monthly_cap = pro_monthly_report_cap()
+        is_enterprise = user.get("plan") == "enterprise"
+        monthly_cap = enterprise_monthly_report_cap() if is_enterprise else pro_monthly_report_cap()
         remaining = max(0, monthly_cap - used_this_month)
         if remaining <= 0:
             return {
@@ -1066,7 +1234,12 @@ def check_access(user: dict) -> dict:
                 "remaining": 0,
                 "monthly_cap": monthly_cap,
             }
-        return {"allowed": True, "reason": "pro", "remaining": remaining, "monthly_cap": monthly_cap}
+        return {
+            "allowed": True,
+            "reason": "enterprise" if is_enterprise else "pro",
+            "remaining": remaining,
+            "monthly_cap": monthly_cap,
+        }
 
     reports_used = int(user.get("reports_used") or 0)
     purchased = int(user.get("single_reports_purchased") or 0)
@@ -1909,6 +2082,14 @@ async def app_alias():
     return HTMLResponse("<h1>Condition Report</h1><p>App loading...</p>")
 
 
+@app.get("/internachi", response_class=HTMLResponse)
+async def internachi_landing():
+    html_path = Path("landing/internachi.html")
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text())
+    return HTMLResponse("<h1>InterNACHI Partner Page</h1><p>Page loading...</p>")
+
+
 @app.get("/terms", response_class=HTMLResponse)
 async def terms_page():
     """Serve Terms of Service page."""
@@ -2223,13 +2404,19 @@ async def get_report(report_id: str, request: Request, x_fingerprint: Optional[s
 @limiter.limit("10/minute")
 async def checkout_single(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create Stripe checkout for a single report."""
-    fp = get_fingerprint(request, x_fingerprint)
+    fp = require_fingerprint(request, x_fingerprint)
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     buyer_email = ""
     if isinstance(body, dict):
         candidate_email = normalize_checkout_email(body.get("email"))
         if candidate_email and len(candidate_email) <= 254:
             buyer_email = candidate_email
+    partner_code = body.get("partner_code", "").strip().upper() if isinstance(body, dict) else ""
+    partner = validate_partner_code(partner_code) if partner_code else None
+    if partner:
+        partner_code = partner["code"]
+        if partner_code_already_redeemed(partner_code, fp, buyer_email):
+            raise HTTPException(409, "Partner code already used for this account")
 
     if not STRIPE_PRICE_SINGLE:
         raise HTTPException(500, "Stripe not configured — single report price missing")
@@ -2240,7 +2427,7 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
         "mode": "payment",
         "success_url": f"{BASE_URL}?payment=success&type=single&session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{BASE_URL}?payment=cancelled",
-        "metadata": {"fingerprint": fp, "type": "single"},
+        "metadata": {"fingerprint": fp, "type": "single", "partner_code": partner_code},
     }
     user = get_user(fp)
     buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
@@ -2251,6 +2438,25 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
 
     if buyer_email:
         checkout_params["customer_email"] = buyer_email
+
+    if partner and partner_code:
+        try:
+            coupon_id = f"PARTNER_{partner_code}"
+            try:
+                coupon = stripe.Coupon.retrieve(coupon_id)
+            except stripe.InvalidRequestError:
+                coupon_name = f"{partner['org_name']} Discount"
+                if len(coupon_name) > 40:
+                    coupon_name = coupon_name[:37] + "..."
+                coupon = stripe.Coupon.create(
+                    id=coupon_id,
+                    percent_off=partner["discount_percent"],
+                    duration="once",
+                    name=coupon_name,
+                )
+            checkout_params["discounts"] = [{"coupon": coupon.id}]
+        except Exception as e:
+            logger.error(f"Stripe coupon error (single): {e}")
 
     session = stripe.checkout.Session.create(**checkout_params)
     asyncio.create_task(
@@ -2263,6 +2469,94 @@ async def checkout_single(request: Request, x_fingerprint: Optional[str] = Heade
         )
     )
     return {"checkout_url": session.url}
+
+
+@app.post("/api/validate-partner-code")
+@limiter.limit("20/minute")
+async def api_validate_partner_code(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    fp = require_fingerprint(request, x_fingerprint)
+    body = await request.json()
+    code = (body.get("code") or "").strip().upper()
+    candidate_email = normalize_checkout_email(body.get("email"))
+    if not code:
+        return {"valid": False}
+    partner = validate_partner_code(code)
+    if partner:
+        if partner_code_already_redeemed(partner["code"], fp, candidate_email):
+            return {"valid": False, "reason": "already_redeemed"}
+        return {"valid": True, "org_name": partner["org_name"], "discount_percent": partner["discount_percent"]}
+    return {"valid": False}
+
+
+@app.post("/api/partner-codes/add")
+@limiter.limit("10/minute")
+async def add_partner_code(request: Request):
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        raise HTTPException(403, "Unauthorized")
+    body = await request.json()
+    code = (body.get("code") or "").strip().upper()
+    org_name = (body.get("org_name") or "").strip()
+    if not code or not org_name:
+        raise HTTPException(400, "code and org_name required")
+    if code in RETIRED_PARTNER_CODES:
+        raise HTTPException(400, f"Partner code '{code}' is retired and cannot be re-enabled")
+    discount = min(int(body.get("discount_percent", 10)), 50)
+    rev_share = min(int(body.get("revenue_share_percent", 10)), 50)
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(500, "Database not available")
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO partner_codes (code, org_name, discount_percent, revenue_share_percent) VALUES (%s, %s, %s, %s) ON CONFLICT (code) DO UPDATE SET org_name = %s, discount_percent = %s, revenue_share_percent = %s",
+            (code, org_name, discount, rev_share, org_name, discount, rev_share),
+        )
+        conn.commit()
+        cur.close()
+        return {"created": True, "code": code, "org_name": org_name}
+    except Exception as e:
+        logger.error(f"add_partner_code error: {e}")
+        raise HTTPException(500, "Failed to add code")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+@app.get("/api/partner-codes/stats")
+@limiter.limit("10/minute")
+async def partner_code_stats(request: Request):
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        raise HTTPException(403, "Unauthorized")
+    if not POSTGRES_AVAILABLE:
+        return {"codes": []}
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT code, org_name, discount_percent, revenue_share_percent, redemptions, active, created_at FROM partner_codes ORDER BY redemptions DESC")
+        rows = cur.fetchall()
+        cur.close()
+        return {
+            "codes": [
+                {
+                    "code": r[0],
+                    "org_name": r[1],
+                    "discount_percent": r[2],
+                    "revenue_share_percent": r[3],
+                    "redemptions": r[4],
+                    "active": r[5],
+                    "created_at": str(r[6]),
+                }
+                for r in rows
+            ]
+        }
+    except Exception as e:
+        logger.error(f"partner_code_stats error: {e}")
+        return {"codes": []}
+    finally:
+        if conn:
+            release_db_connection(conn)
 
 
 @app.post("/api/verify-payment")
@@ -2309,6 +2603,18 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
             rollback_processed_session(session_id)
             logger.error(f"verify_payment: failed to activate pro plan for {fp[:12]}...")
             raise HTTPException(500, "Payment verified but plan activation failed. Please retry in a moment.")
+    elif purchase_type == "enterprise":
+        customer_id = session.get("customer", "") or ""
+        if not update_user_plan(fp, "enterprise", customer_id):
+            rollback_processed_session(session_id)
+            logger.error(f"verify_payment: failed to activate enterprise plan for {fp[:12]}...")
+            raise HTTPException(500, "Payment verified but enterprise activation failed. Please retry in a moment.")
+
+    buyer_email = (session.get("customer_details", {}) or {}).get("email") or (get_user(fp).get("email") or "")
+    partner_code = session.metadata.get("partner_code", "")
+    if partner_code:
+        amount = session.get("amount_total", 0)
+        record_partner_redemption(partner_code, fp, session_id, amount, buyer_email)
 
     record_attribution_event(
         event_type="payment_success",
@@ -2317,8 +2623,8 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
         email=(session.get("customer_details", {}) or {}).get("email"),
         metadata={"purchase_type": purchase_type, "session_id": session_id, "product": "condition-report"},
     )
-    buyer_email = (session.get("customer_details", {}) or {}).get("email") or (get_user(fp).get("email") or "")
-    product_label = "Single Report" if purchase_type == "single" else "Pro Plan"
+    product_labels = {"single": "Single Report", "pro": "Pro Plan", "enterprise": "Enterprise Plan"}
+    product_label = product_labels.get(purchase_type, "Pro Plan")
     await send_paid_conversion_alert(
         product_label=product_label,
         buyer_email=buyer_email,
@@ -2446,7 +2752,7 @@ async def download_shared_report(token: str):
 @limiter.limit("10/minute")
 async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Create Stripe checkout for Pro subscription."""
-    fp = get_fingerprint(request, x_fingerprint)
+    fp = require_fingerprint(request, x_fingerprint)
     body = await request.json()
     billing = body.get("billing", "monthly")
     buyer_email = ""
@@ -2454,6 +2760,12 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
         candidate_email = normalize_checkout_email(body.get("email"))
         if candidate_email and len(candidate_email) <= 254:
             buyer_email = candidate_email
+    partner_code = body.get("partner_code", "").strip().upper() if isinstance(body, dict) else ""
+    partner = validate_partner_code(partner_code) if partner_code else None
+    if partner:
+        partner_code = partner["code"]
+        if partner_code_already_redeemed(partner_code, fp, buyer_email):
+            raise HTTPException(409, "Partner code already used for this account")
 
     price_id = STRIPE_PRICE_MONTHLY if billing == "monthly" else STRIPE_PRICE_ANNUAL
     if not price_id:
@@ -2467,7 +2779,7 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
         "mode": checkout_mode,
         "success_url": f"{BASE_URL}?payment=success&type={'annual' if billing == 'annual' else 'pro'}&session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{BASE_URL}?payment=cancelled",
-        "metadata": {"fingerprint": fp, "type": "pro"},
+        "metadata": {"fingerprint": fp, "type": "pro", "billing": billing, "partner_code": partner_code},
     }
     user = get_user(fp)
     buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
@@ -2479,11 +2791,107 @@ async def checkout_pro(request: Request, x_fingerprint: Optional[str] = Header(N
     if buyer_email:
         checkout_params["customer_email"] = buyer_email
 
+    if partner and partner_code:
+        try:
+            coupon_id = f"PARTNER_{partner_code}"
+            try:
+                coupon = stripe.Coupon.retrieve(coupon_id)
+            except stripe.InvalidRequestError:
+                coupon_name = f"{partner['org_name']} Discount"
+                if len(coupon_name) > 40:
+                    coupon_name = coupon_name[:37] + "..."
+                coupon = stripe.Coupon.create(
+                    id=coupon_id,
+                    percent_off=partner["discount_percent"],
+                    duration="once",
+                    name=coupon_name,
+                )
+            checkout_params["discounts"] = [{"coupon": coupon.id}]
+        except Exception as e:
+            logger.error(f"Stripe coupon error (pro): {e}")
+
     session = stripe.checkout.Session.create(**checkout_params)
     asyncio.create_task(
         send_checkout_followups(
             buyer_email=buyer_email,
-            product_label="Enterprise Annual" if billing == "annual" else "Pro Monthly",
+            product_label="Pro Annual" if billing == "annual" else "Pro Monthly",
+            checkout_url=session.url,
+            fingerprint=fp,
+            session_id=session.id,
+        )
+    )
+    return {"checkout_url": session.url}
+
+
+@app.post("/api/checkout/enterprise")
+@limiter.limit("10/minute")
+async def checkout_enterprise(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Create Stripe checkout for Enterprise subscription."""
+    fp = require_fingerprint(request, x_fingerprint)
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    billing = body.get("billing", "monthly")
+    buyer_email = ""
+    if isinstance(body, dict):
+        candidate_email = normalize_checkout_email(body.get("email"))
+        if candidate_email and len(candidate_email) <= 254:
+            buyer_email = candidate_email
+    partner_code = body.get("partner_code", "").strip().upper() if isinstance(body, dict) else ""
+    partner = validate_partner_code(partner_code) if partner_code else None
+    if partner:
+        partner_code = partner["code"]
+        if partner_code_already_redeemed(partner_code, fp, buyer_email):
+            raise HTTPException(409, "Partner code already used for this account")
+
+    price_id = STRIPE_PRICE_ENTERPRISE_MONTHLY if billing == "monthly" else STRIPE_PRICE_ENTERPRISE_ANNUAL
+    if not price_id:
+        raise HTTPException(500, "Stripe not configured — enterprise price missing")
+
+    try:
+        price_obj = stripe.Price.retrieve(price_id)
+        checkout_mode = "subscription" if price_obj.type == "recurring" else "payment"
+    except Exception:
+        checkout_mode = "subscription" if billing == "monthly" else "payment"
+
+    checkout_params = {
+        "payment_method_types": ["card"],
+        "line_items": [{"price": price_id, "quantity": 1}],
+        "mode": checkout_mode,
+        "success_url": f"{BASE_URL}?payment=success&type=enterprise&session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{BASE_URL}?payment=cancelled",
+        "metadata": {"fingerprint": fp, "type": "enterprise", "billing": billing, "partner_code": partner_code},
+    }
+    user = get_user(fp)
+    buyer_email = buyer_email or normalize_checkout_email(user.get("email"))
+    if buyer_email:
+        blocked_reason = blocked_checkout_email_reason(buyer_email)
+        if blocked_reason:
+            raise HTTPException(400, blocked_reason)
+        checkout_params["customer_email"] = buyer_email
+
+    if partner and partner_code:
+        try:
+            coupon_id = f"PARTNER_{partner_code}"
+            try:
+                coupon = stripe.Coupon.retrieve(coupon_id)
+            except stripe.InvalidRequestError:
+                coupon_name = f"{partner['org_name']} Discount"
+                if len(coupon_name) > 40:
+                    coupon_name = coupon_name[:37] + "..."
+                coupon = stripe.Coupon.create(
+                    id=coupon_id,
+                    percent_off=partner["discount_percent"],
+                    duration="once",
+                    name=coupon_name,
+                )
+            checkout_params["discounts"] = [{"coupon": coupon.id}]
+        except Exception as e:
+            logger.error(f"Stripe coupon error (enterprise): {e}")
+
+    session = stripe.checkout.Session.create(**checkout_params)
+    asyncio.create_task(
+        send_checkout_followups(
+            buyer_email=buyer_email,
+            product_label="Enterprise Annual" if billing == "annual" else "Enterprise Monthly",
             checkout_url=session.url,
             fingerprint=fp,
             session_id=session.id,
@@ -2604,8 +3012,19 @@ async def stripe_webhook(request: Request):
                         rollback_processed_session(stripe_session_id)
                         logger.error(f"webhook: failed to activate pro plan for {fp[:12]}...")
                         raise HTTPException(500, "Failed to activate pro plan")
+                elif purchase_type == "enterprise":
+                    customer_id = session.get("customer", "")
+                    if not update_user_plan(fp, "enterprise", customer_id):
+                        rollback_processed_session(stripe_session_id)
+                        logger.error(f"webhook: failed to activate enterprise plan for {fp[:12]}...")
+                        raise HTTPException(500, "Failed to activate enterprise plan")
                 buyer_email = (session.get("customer_details", {}) or {}).get("email") or (get_user(fp).get("email") or "")
-                product_label = "Single Report" if purchase_type == "single" else "Pro Plan"
+                partner_code = session.get("metadata", {}).get("partner_code", "")
+                if partner_code:
+                    amount = session.get("amount_total", 0)
+                    record_partner_redemption(partner_code, fp, stripe_session_id, amount, buyer_email)
+                product_labels = {"single": "Single Report", "pro": "Pro Plan", "enterprise": "Enterprise Plan"}
+                product_label = product_labels.get(purchase_type, "Pro Plan")
                 await send_paid_conversion_alert(
                     product_label=product_label,
                     buyer_email=buyer_email,
@@ -2691,17 +3110,25 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
                 stripe_cid = existing_user.get("stripe_customer_id")
 
             # Check Stripe for active Condition Report subscription (not DataWeave)
-            cr_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
+            pro_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
+            enterprise_price_ids = {STRIPE_PRICE_ENTERPRISE_MONTHLY, STRIPE_PRICE_ENTERPRISE_ANNUAL} - {""}
             try:
                 customers = stripe.Customer.list(email=email, limit=1)
                 if customers.data:
                     subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=10)
                     for sub in subscriptions.data:
                         for item in sub.get("items", {}).get("data", []):
-                            if item.get("price", {}).get("id") in cr_price_ids:
+                            price_id = item.get("price", {}).get("id")
+                            if price_id in enterprise_price_ids:
+                                plan = "enterprise"
+                                stripe_cid = customers.data[0].id
+                                break
+                            if price_id in pro_price_ids:
                                 plan = "pro"
                                 stripe_cid = customers.data[0].id
                                 break
+                        if plan == "enterprise":
+                            break
             except Exception:
                 pass
 
@@ -2834,19 +3261,28 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
             plan = account["plan"] or "free"
 
             # Auto-heal: check Stripe if plan shows free (only Condition Report prices)
-            cr_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
-            if plan == "free" and cr_price_ids:
+            pro_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
+            enterprise_price_ids = {STRIPE_PRICE_ENTERPRISE_MONTHLY, STRIPE_PRICE_ENTERPRISE_ANNUAL} - {""}
+            if plan == "free" and (pro_price_ids or enterprise_price_ids):
                 try:
                     customers = stripe.Customer.list(email=email, limit=1)
                     if customers.data:
                         subscriptions = stripe.Subscription.list(customer=customers.data[0].id, status="active", limit=10)
                         for sub in subscriptions.data:
                             for item in sub.get("items", {}).get("data", []):
-                                if item.get("price", {}).get("id") in cr_price_ids:
+                                price_id = item.get("price", {}).get("id")
+                                if price_id in enterprise_price_ids:
+                                    plan = "enterprise"
+                                    cur.execute("UPDATE accounts SET plan = 'enterprise', stripe_customer_id = %s WHERE email = %s",
+                                                (customers.data[0].id, email))
+                                    break
+                                if price_id in pro_price_ids:
                                     plan = "pro"
                                     cur.execute("UPDATE accounts SET plan = 'pro', stripe_customer_id = %s WHERE email = %s",
                                                 (customers.data[0].id, email))
                                     break
+                            if plan != "free":
+                                break
                 except Exception:
                     pass
 

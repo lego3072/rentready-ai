@@ -50,9 +50,9 @@
         "offers": {
             "@type": "AggregateOffer",
             "lowPrice": "0",
-            "highPrice": "349",
+            "highPrice": "2999",
             "priceCurrency": "USD",
-            "offerCount": "4",
+            "offerCount": "6",
             "offers": [
                 {"@type": "Offer", "name": "Free Trial", "price": "0", "priceCurrency": "USD", "description": "1 free condition report — no credit card required", "availability": "https://schema.org/InStock"},
                 {"@type": "Offer", "name": "Single Report", "price": "9.99", "priceCurrency": "USD", "description": "One professional AI property condition report", "availability": "https://schema.org/InStock"},
@@ -71,12 +71,38 @@
                 },
                 {
                     "@type": "Offer",
-                    "name": "Enterprise Annual",
+                    "name": "Pro Annual",
                     "description": "Up to 300 property condition reports per year — save ",
                     "availability": "https://schema.org/InStock",
                     "priceSpecification": {
                         "@type": "UnitPriceSpecification",
                         "price": "349.00",
+                        "priceCurrency": "USD",
+                        "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "ANN"},
+                        "unitText": "year"
+                    }
+                },
+                {
+                    "@type": "Offer",
+                    "name": "Enterprise Monthly",
+                    "description": "Team account with up to 125 property condition reports per month",
+                    "availability": "https://schema.org/InStock",
+                    "priceSpecification": {
+                        "@type": "UnitPriceSpecification",
+                        "price": "299.00",
+                        "priceCurrency": "USD",
+                        "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "MON"},
+                        "unitText": "month"
+                    }
+                },
+                {
+                    "@type": "Offer",
+                    "name": "Enterprise Annual",
+                    "description": "Team account with up to 1,500 property condition reports per year",
+                    "availability": "https://schema.org/InStock",
+                    "priceSpecification": {
+                        "@type": "UnitPriceSpecification",
+                        "price": "2999.00",
                         "priceCurrency": "USD",
                         "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "ANN"},
                         "unitText": "year"
@@ -686,6 +712,45 @@
             text-align: center;
             margin-bottom: 14px;
         }
+        .partner-code-box {
+            border: 1.5px dashed #bbf7d0;
+            background: #f0fdf4;
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .partner-code-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .partner-code-input {
+            flex: 1;
+            min-width: 0;
+            padding: 11px 12px;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        .partner-code-btn {
+            border: none;
+            border-radius: 10px;
+            background: #16a34a;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 11px 14px;
+            cursor: pointer;
+            min-height: 42px;
+            white-space: nowrap;
+        }
+        .partner-code-msg {
+            margin-top: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            display: none;
+        }
 
         /* Past reports */
         .past-report {
@@ -850,6 +915,7 @@
         }
         .plan-badge.free { background: #f3f4f6; color: #666; }
         .plan-badge.pro { background: #dbeafe; color: #2563eb; }
+        .plan-badge.enterprise { background: #fee2e2; color: #b91c1c; }
 
         /* Auth Modal */
         .auth-overlay {
@@ -1012,6 +1078,14 @@
     <div class="pricing-modal">
         <h3>Simple Pricing</h3>
         <p class="pricing-sub">Your first full report is free. No credit card needed.</p>
+        <div class="partner-code-box">
+            <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:6px;">Member code</div>
+            <div class="partner-code-row">
+                <input type="text" id="modal-partner-code" class="partner-code-input" placeholder="Enter member code">
+                <button class="partner-code-btn" type="button" onclick="applyPartnerCode('modal')">Apply</button>
+            </div>
+            <div id="modal-partner-msg" class="partner-code-msg"></div>
+        </div>
         <div class="pricing-tier" onclick="closePricingModal();checkout('single')">
             <div class="tier-header">
                 <span class="tier-name">Single Report</span>
@@ -1028,10 +1102,24 @@
         </div>
         <div class="pricing-tier best" onclick="closePricingModal();checkout('annual')">
             <div class="tier-header">
-                <span class="tier-name">Enterprise Annual<span class="tier-badge">BEST VALUE</span></span>
+                <span class="tier-name">Pro Annual<span class="tier-badge">SAVE</span></span>
                 <span class="tier-price">$349/yr</span>
             </div>
             <div class="tier-desc">Up to 300 reports/year. Save $119 vs monthly.</div>
+        </div>
+        <div class="pricing-tier" onclick="closePricingModal();checkout('enterprise')">
+            <div class="tier-header">
+                <span class="tier-name">Enterprise Monthly</span>
+                <span class="tier-price">$299/mo</span>
+            </div>
+            <div class="tier-desc">Team account + up to 125 reports/month.</div>
+        </div>
+        <div class="pricing-tier" onclick="closePricingModal();checkout('enterprise_annual')">
+            <div class="tier-header">
+                <span class="tier-name">Enterprise Annual<span class="tier-badge">BEST VALUE</span></span>
+                <span class="tier-price">$2,999/yr</span>
+            </div>
+            <div class="tier-desc">Team account + up to 1,500 reports/year.</div>
         </div>
         <button class="btn-secondary" onclick="closePricingModal()" style="margin-top:12px;width:100%;">Close</button>
     </div>
@@ -1146,6 +1234,14 @@
                 <div class="pricing-banner">
                     <h3>Need more reports?</h3>
                     <p>Your free trial is used. Upgrade for higher report caps.</p>
+                    <div class="partner-code-box">
+                        <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:6px;">Member code</div>
+                        <div class="partner-code-row">
+                            <input type="text" id="upgrade-partner-code" class="partner-code-input" placeholder="Enter member code">
+                            <button class="partner-code-btn" type="button" onclick="applyPartnerCode('upgrade')">Apply</button>
+                        </div>
+                        <div id="upgrade-partner-msg" class="partner-code-msg"></div>
+                    </div>
                     <div class="pricing-options">
                         <div class="pricing-option" onclick="checkout('single')">
                             <div class="label">Single Report</div>
@@ -1156,8 +1252,16 @@
                             <div class="price">$39/mo</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('annual')">
-                            <div class="label">Annual — Save $119</div>
+                            <div class="label">Pro Annual (300/yr)</div>
                             <div class="price">$349/yr</div>
+                        </div>
+                        <div class="pricing-option" onclick="checkout('enterprise')">
+                            <div class="label">Enterprise Monthly</div>
+                            <div class="price">$299/mo</div>
+                        </div>
+                        <div class="pricing-option" onclick="checkout('enterprise_annual')">
+                            <div class="label">Enterprise Annual</div>
+                            <div class="price">$2,999/yr</div>
                         </div>
                     </div>
                 </div>
@@ -1217,6 +1321,7 @@ let currentReportId = null;
 let viewingResults = false;
 let userStatus = null;
 const CHECKOUT_EMAIL_KEY = 'cr_checkout_email';
+let activePartnerCode = '';
 
 function generateFingerprint() {
     const fp = 'rr_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -1322,12 +1427,22 @@ async function init() {
         const type = params.get('type');
         const sessionId = params.get('session_id');
         window.history.replaceState({}, '', '/');
-        const msg = (type === 'pro' || type === 'annual') ? 'Welcome to Pro! You now have a capped monthly report allowance.' : 'Payment successful! Your report credit has been added.';
+        const msg = (type === 'pro' || type === 'annual')
+            ? 'Welcome to Pro! You now have a capped report allowance.'
+            : (type === 'enterprise'
+                ? 'Welcome to Enterprise! Team report limits are now active.'
+                : 'Payment successful! Your report credit has been added.');
         showToast(msg, 'success');
 
         // Google Ads conversion tracking
         if (typeof gtag === 'function') {
-            const convValue = type === 'pro' ? 39.00 : type === 'annual' ? 349.00 : 9.99;
+            const convValue = type === 'pro'
+                ? 39.00
+                : type === 'annual'
+                    ? 349.00
+                    : type === 'enterprise'
+                        ? 299.00
+                        : 9.99;
             gtag('event', 'conversion', {
                 'send_to': 'AW-17926414862/purchase',
                 'value': convValue,
@@ -1366,6 +1481,17 @@ async function init() {
     }
 
     await loadUserStatus();
+    await bootstrapPartnerReferralCode();
+    ['modal-partner-code', 'upgrade-partner-code'].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') {
+                evt.preventDefault();
+                applyPartnerCode(id.startsWith('modal') ? 'modal' : 'upgrade');
+            }
+        });
+    });
     addDefaultRooms();
 }
 
@@ -1389,7 +1515,9 @@ async function loadUserStatus() {
 function updateStatusDisplay() {
     const el = document.getElementById('user-status');
     if (!userStatus) return;
-    if (userStatus.is_pro || userStatus.plan === 'pro') {
+    if (userStatus.plan === 'enterprise') {
+        el.innerHTML = '<span class="plan-badge enterprise">Enterprise</span>';
+    } else if (userStatus.is_pro || userStatus.plan === 'pro') {
         el.innerHTML = '<span class="plan-badge pro">Pro</span>';
     } else if (userStatus.reports_used === 0) {
         el.textContent = '1 free report';
@@ -1805,7 +1933,7 @@ function closePricingModal() {
 
 function showUpgradeBanner() {
     // Pro users don't need to see pricing
-    if (userStatus && (userStatus.is_pro || userStatus.plan === 'pro')) return;
+    if (userStatus && (userStatus.is_pro || userStatus.plan === 'pro' || userStatus.plan === 'enterprise')) return;
     const banner = document.getElementById('upgrade-banner');
     banner.classList.toggle('hidden');
     if (!banner.classList.contains('hidden')) {
@@ -1816,7 +1944,7 @@ function showUpgradeBanner() {
 // --- Paid Access Gate ---
 function hasPaidAccess() {
     if (!userStatus) return false;
-    if (userStatus.is_pro || userStatus.plan === 'pro') return true;
+    if (userStatus.is_pro || userStatus.plan === 'pro' || userStatus.plan === 'enterprise') return true;
     // If user has EVER purchased a report, they can access delivery features
     // (download, email, text, share) for all their reports
     const purchased = userStatus.single_reports_purchased || 0;
@@ -1827,7 +1955,7 @@ function hasPaidAccess() {
 function hasNewReportCredits() {
     // Check if user can generate a NEW report (separate from delivery access)
     if (!userStatus) return false;
-    if (userStatus.is_pro || userStatus.plan === 'pro') return true;
+    if (userStatus.is_pro || userStatus.plan === 'pro' || userStatus.plan === 'enterprise') return true;
     const purchased = userStatus.single_reports_purchased || 0;
     const used = userStatus.reports_used || 0;
     // Free trial = first report, purchased covers the rest
@@ -2121,21 +2249,112 @@ function resolveCheckoutEmail() {
     return '';
 }
 
+function resolveCheckoutPartnerCode() {
+    const fromInputs = ['modal-partner-code', 'upgrade-partner-code']
+        .map((id) => {
+            const el = document.getElementById(id);
+            return el ? String(el.value || '').trim().toUpperCase() : '';
+        })
+        .find((v) => v.length > 0);
+    return String(activePartnerCode || fromInputs || '').trim().toUpperCase();
+}
+
+async function applyPartnerCode(source) {
+    const input = document.getElementById(source + '-partner-code');
+    const msg = document.getElementById(source + '-partner-msg');
+    if (!input || !msg) return;
+
+    const code = (input.value || '').trim().toUpperCase();
+    if (!code) {
+        activePartnerCode = '';
+        msg.style.display = 'none';
+        return;
+    }
+
+    try {
+        const checkoutEmail = resolveCheckoutEmail();
+        const res = await fetch('/api/validate-partner-code', {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify({ code, email: checkoutEmail || '' }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.valid) {
+            activePartnerCode = code;
+            ['modal-partner-code', 'upgrade-partner-code'].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.value = code;
+            });
+            ['modal-partner-msg', 'upgrade-partner-msg'].forEach((id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.style.display = 'block';
+                el.style.color = '#166534';
+                el.textContent = `Verified: ${data.org_name} (${data.discount_percent}% off)`;
+            });
+            return;
+        }
+
+        activePartnerCode = '';
+        msg.style.display = 'block';
+        msg.style.color = '#b91c1c';
+        msg.textContent = data.reason === 'already_redeemed'
+            ? 'This member code was already used on this account.'
+            : 'Invalid member code.';
+    } catch (err) {
+        msg.style.display = 'block';
+        msg.style.color = '#b91c1c';
+        msg.textContent = 'Could not validate code right now.';
+    }
+}
+
+async function bootstrapPartnerReferralCode() {
+    const params = new URLSearchParams(window.location.search);
+    const ref = (params.get('ref') || '').trim().toLowerCase();
+    if (ref !== 'internachi') return;
+
+    activePartnerCode = 'NACHI10';
+    ['modal-partner-code', 'upgrade-partner-code'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = activePartnerCode;
+    });
+    await applyPartnerCode('modal');
+    await applyPartnerCode('upgrade');
+}
+
 async function checkout(type) {
+    const checkoutName = type === 'single'
+        ? 'Single Report'
+        : type === 'annual'
+            ? 'Pro Annual'
+            : type === 'enterprise'
+                ? 'Enterprise Monthly'
+                : type === 'enterprise_annual'
+                    ? 'Enterprise Annual'
+                    : 'Pro Monthly';
+    const checkoutValue = type === 'single'
+        ? 9.99
+        : type === 'annual'
+            ? 349.00
+            : type === 'enterprise'
+                ? 299.00
+                : type === 'enterprise_annual'
+                    ? 2999.00
+                    : 39.00;
+
     // Fire Google Ads "begin_checkout" event
     if (typeof gtag === 'function') {
-        const checkoutValue = type === 'single' ? 9.99 : type === 'annual' ? 349.00 : 39.00;
         gtag('event', 'begin_checkout', {
             'send_to': 'AW-17926414862',
             'value': checkoutValue,
             'currency': 'USD',
-            'items': [{ 'name': type === 'single' ? 'Single Report' : type === 'annual' ? 'Enterprise Annual' : 'Pro Monthly' }]
+            'items': [{ 'name': checkoutName }]
         });
     }
     if (typeof window.fbq === 'function') {
-        const checkoutValue = type === 'single' ? 9.99 : type === 'annual' ? 349.00 : 39.00;
         window.fbq('track', 'InitiateCheckout', {
-            content_name: type === 'single' ? 'Condition Single Report' : type === 'annual' ? 'Condition Enterprise Annual' : 'Condition Pro Monthly',
+            content_name: 'Condition ' + checkoutName,
             value: checkoutValue,
             currency: 'USD'
         });
@@ -2143,15 +2362,20 @@ async function checkout(type) {
 
     try {
         const checkoutEmail = resolveCheckoutEmail();
+        const partnerCode = resolveCheckoutPartnerCode();
         let endpoint, body;
         if (type === 'single') {
             endpoint = '/api/checkout/single';
             body = { utm: getStoredUTM() };
+        } else if (type === 'enterprise' || type === 'enterprise_annual') {
+            endpoint = '/api/checkout/enterprise';
+            body = { billing: type === 'enterprise_annual' ? 'annual' : 'monthly', utm: getStoredUTM() };
         } else {
             endpoint = '/api/checkout/pro';
             body = { billing: type === 'annual' ? 'annual' : 'monthly', utm: getStoredUTM() };
         }
         if (checkoutEmail) body.email = checkoutEmail;
+        if (partnerCode) body.partner_code = partnerCode;
 
         const res = await fetch(endpoint, {
             method: 'POST',
@@ -2161,6 +2385,8 @@ async function checkout(type) {
         const data = await res.json();
         if (data.checkout_url) {
             window.location.href = data.checkout_url;
+        } else {
+            throw new Error(data.detail || 'Checkout failed');
         }
     } catch (err) {
         alert('Checkout error: ' + err.message);
@@ -2170,7 +2396,7 @@ async function checkout(type) {
 // --- New Report ---
 function startNew() {
     // If free trial used and no credits/pro, show paywall
-    if (userStatus && !userStatus.is_pro && userStatus.plan !== 'pro') {
+    if (userStatus && !userStatus.is_pro && userStatus.plan !== 'pro' && userStatus.plan !== 'enterprise') {
         const remaining = (userStatus.single_reports_purchased || 0) - Math.max(0, (userStatus.reports_used || 0) - 1);
         if (userStatus.reports_used > 0 && remaining <= 0) {
             showPricingOnly();
@@ -2330,8 +2556,8 @@ async function openProfileModal() {
         accountData = { email: data.email, name: data.name, plan: data.plan };
         localStorage.setItem('rr_account', JSON.stringify(accountData));
 
-        const planLabel = data.plan === 'pro' ? 'Pro' : 'Free';
-        const planClass = data.plan === 'pro' ? 'pro' : 'free';
+        const planLabel = data.plan === 'enterprise' ? 'Enterprise' : data.plan === 'pro' ? 'Pro' : 'Free';
+        const planClass = data.plan === 'enterprise' ? 'enterprise' : data.plan === 'pro' ? 'pro' : 'free';
 
         const verifiedBadge = data.email_verified
             ? '<span style="color:#16a34a;font-size:12px;margin-left:6px;">✓ Verified</span>'
@@ -2362,13 +2588,13 @@ async function openProfileModal() {
                 <span class="profile-label">Member Since</span>
                 <span class="profile-value">${data.member_since || '—'}</span>
             </div>
-            ${data.plan !== 'pro' ? `
+            ${(data.plan !== 'pro' && data.plan !== 'enterprise') ? `
                 <div style="margin-top:16px;">
                     <button class="btn-primary" onclick="closeProfileModal();checkout('pro')">Upgrade to Pro</button>
                 </div>
             ` : `
                 <div style="margin-top:16px;text-align:center;">
-                    <span style="color:#2563eb;font-weight:600;font-size:14px;">Monthly report cap applies</span>
+                    <span style="color:#2563eb;font-weight:600;font-size:14px;">Plan limits are active</span>
                 </div>
             `}
         `;
@@ -2581,64 +2807,5 @@ async function resendVerification() {
 init();
 checkAccountOnLoad();
 </script>
-<!-- COMPETITOR_SPRINT_WIDGET_START -->
-<style>
-.smb72-float{position:fixed;right:14px;bottom:14px;z-index:9999;background:#071a2b;color:#f8fafc;border:1px solid rgba(59,130,246,.35);border-radius:14px;padding:12px 14px;max-width:320px;box-shadow:0 12px 32px rgba(2,6,23,.45);font-family:inherit}
-.smb72-float .smb72-title{font-size:14px;font-weight:800;letter-spacing:.01em;margin-bottom:4px;color:#93c5fd}
-.smb72-float .smb72-copy{font-size:12px;line-height:1.35;color:#dbeafe;margin-bottom:10px}
-.smb72-float .smb72-cta{display:inline-block;text-decoration:none;background:linear-gradient(135deg,#22d3ee,#34d399);color:#05202a;font-weight:800;font-size:12px;padding:8px 10px;border-radius:10px}
-.smb72-float .smb72-cta:hover{filter:brightness(1.06)}
-@media (max-width: 740px){.smb72-float{left:10px;right:10px;bottom:10px;max-width:none;padding:10px 12px}.smb72-float .smb72-copy{font-size:11px}.smb72-float .smb72-title{font-size:13px}}
-</style>
-<div class="smb72-float" aria-label="72 hour competitor sprint offer">
-  <div class="smb72-title">72h Competitor Sprint</div>
-  <div class="smb72-copy">Need fast wins? We execute a checkout-first lane to close your first competitor SMB in 72 hours.</div>
-  <a class="smb72-cta" href="https://condition-report.com/?utm_source=conditionreport&utm_medium=referral&utm_campaign=smb72_rollout" target="_blank" rel="noopener noreferrer">Launch Sprint</a>
-</div>
-<!-- COMPETITOR_SPRINT_WIDGET_END -->
-<a href="https://dataweaveai.com" class="dwai-company-badge" aria-label="A DataWeaveAI Inc Company">A DataWeaveAI Inc Company</a>
-<style>
-.dwai-company-badge{position:fixed;top:12px;left:12px;z-index:999;background:rgba(7,19,40,.86);color:#dbeafe;border:1px solid rgba(147,197,253,.38);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;backdrop-filter:blur(6px);text-decoration:none}
-.dwai-company-badge:hover{color:#fff;border-color:rgba(59,130,246,.7)}
-@media (max-width:768px){.dwai-company-badge{top:8px;left:8px;font-size:11px;padding:5px 8px}}
-</style>
-
-<!-- DWAI_BADGE_ARTLOG_STANDARD_START -->
-<style>
-.dwai-company-badge{
-  position:fixed;
-  top:12px;
-  left:12px;
-  z-index:9999;
-  background:rgba(7,19,40,.86);
-  color:#dbeafe;
-  border:1px solid rgba(147,197,253,.38);
-  padding:6px 10px;
-  border-radius:999px;
-  font-size:12px;
-  font-weight:600;
-  line-height:1.2;
-  white-space:nowrap;
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
-  text-decoration:none;
-  -webkit-font-smoothing:antialiased;
-  text-rendering:optimizeLegibility;
-}
-.dwai-company-badge:hover{
-  color:#fff;
-  border-color:rgba(59,130,246,.7);
-}
-@media (max-width:768px){
-  .dwai-company-badge{
-    top:8px;
-    left:8px;
-    font-size:11px;
-    padding:5px 8px;
-  }
-}
-</style>
-<!-- DWAI_BADGE_ARTLOG_STANDARD_END -->
-
 </body>
 </html>

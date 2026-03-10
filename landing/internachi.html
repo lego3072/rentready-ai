@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="theme-color" content="#14532d">
+    <meta name="description" content="Exclusive Condition Report offer for InterNACHI members. Generate move-in, move-out, and periodic property condition reports in under 60 seconds.">
+    <meta property="og:title" content="Condition Report — Exclusive InterNACHI Member Offer">
+    <meta property="og:description" content="InterNACHI members get verified pricing and member-code support for Condition Report.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://condition-report.com/internachi">
+    <meta name="robots" content="index, follow">
+    <title>Condition Report — Exclusive InterNACHI Member Offer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0fdf4;
+            color: #14532d;
+            line-height: 1.55;
+        }
+        a { color: inherit; }
+        .header {
+            background: #14532d;
+            color: #fff;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 800;
+            text-decoration: none;
+            color: #fff;
+        }
+        .logo span { color: #4ade80; }
+        .header-btn {
+            border: none;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            background: #16a34a;
+            color: #fff;
+        }
+        .exclusive {
+            background: linear-gradient(90deg, #14532d, #166534);
+            color: #d1fae5;
+            text-align: center;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+        .exclusive strong { color: #86efac; }
+        .hero {
+            background: linear-gradient(135deg, #14532d 0%, #166534 50%, #14532d 100%);
+            color: #fff;
+            padding: 56px 20px 48px;
+            text-align: center;
+        }
+        .hero .pill {
+            display: inline-block;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.1);
+            border-radius: 999px;
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: #bbf7d0;
+        }
+        .hero h1 {
+            font-size: clamp(28px, 5vw, 44px);
+            line-height: 1.15;
+            margin-bottom: 14px;
+        }
+        .hero h1 em { color: #4ade80; font-style: normal; }
+        .hero p {
+            max-width: 720px;
+            margin: 0 auto 22px;
+            color: #d1fae5;
+            font-size: 17px;
+        }
+        .hero-cta {
+            display: inline-block;
+            background: #fff;
+            color: #14532d;
+            text-decoration: none;
+            border-radius: 12px;
+            padding: 14px 24px;
+            font-size: 16px;
+            font-weight: 800;
+            margin-right: 8px;
+            margin-bottom: 10px;
+        }
+        .hero-secondary {
+            display: inline-block;
+            border: 2px solid rgba(255,255,255,0.35);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 12px;
+            padding: 13px 24px;
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .wrap {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .section { padding: 52px 0; }
+        .section h2 {
+            text-align: center;
+            font-size: 31px;
+            margin-bottom: 10px;
+        }
+        .section .sub {
+            text-align: center;
+            color: #4b5563;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .card {
+            background: #fff;
+            border: 1.5px solid #bbf7d0;
+            border-radius: 14px;
+            padding: 18px;
+        }
+        .card h3 {
+            font-size: 17px;
+            margin-bottom: 6px;
+        }
+        .card p {
+            font-size: 14px;
+            color: #475569;
+        }
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+        .price-card {
+            background: #fff;
+            border-radius: 14px;
+            border: 2px solid #bbf7d0;
+            padding: 20px;
+            position: relative;
+        }
+        .price-card.featured { border-color: #16a34a; box-shadow: 0 10px 24px rgba(22,163,74,0.12); }
+        .badge {
+            position: absolute;
+            top: -10px;
+            right: 14px;
+            background: #166534;
+            color: #fff;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 5px 10px;
+            text-transform: uppercase;
+        }
+        .price-title { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+        .price-old { color: #94a3b8; text-decoration: line-through; font-size: 29px; font-weight: 700; }
+        .price-new { color: #16a34a; font-size: 43px; font-weight: 900; line-height: 1; margin: 2px 0 6px; }
+        .price-unit { color: #64748b; font-size: 14px; margin-bottom: 12px; }
+        .price-list { list-style: none; margin-bottom: 14px; }
+        .price-list li {
+            font-size: 14px;
+            color: #334155;
+            margin: 6px 0;
+            padding-left: 18px;
+            position: relative;
+        }
+        .price-list li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #16a34a;
+            font-weight: 800;
+        }
+        .cta-wide {
+            width: 100%;
+            border: none;
+            background: #16a34a;
+            color: #fff;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 800;
+            padding: 12px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        .verify {
+            background: #ecfdf5;
+            border: 1.5px solid #86efac;
+            border-radius: 14px;
+            padding: 18px;
+            margin-top: 20px;
+        }
+        .verify h3 { font-size: 18px; margin-bottom: 8px; }
+        .verify ul { margin-left: 18px; color: #374151; }
+        .verify li { margin: 6px 0; font-size: 14px; }
+        .footer {
+            text-align: center;
+            color: #6b7280;
+            font-size: 13px;
+            padding: 26px 16px 40px;
+        }
+        @media (max-width: 780px) {
+            .cards, .pricing-grid { grid-template-columns: 1fr; }
+            .hero { padding-top: 44px; }
+            .hero p { font-size: 15px; }
+            .price-new { font-size: 36px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a class="logo" href="/">Condition<span>Report</span></a>
+        <a class="header-btn" href="/?ref=internachi">Start Member Trial</a>
+    </header>
+
+    <div class="exclusive">InterNACHI Member Program: <strong>verified 10% discount</strong> + first report free.</div>
+
+    <section class="hero">
+        <div class="pill">InterNACHI Partner Lane</div>
+        <h1>Write move-in and move-out reports in <em>under 60 seconds</em></h1>
+        <p>Condition Report helps inspectors and landlords document room condition quickly, generate PDF reports, and send clean deliverables without manual write-ups.</p>
+        <a class="hero-cta" href="/?ref=internachi">Open Member App</a>
+        <a class="hero-secondary" href="#pricing">See Member Pricing</a>
+        <div style="margin-top:10px;font-size:13px;color:#a7f3d0;">Member code can be entered in checkout modal if you were not routed from this page.</div>
+    </section>
+
+    <main class="wrap">
+        <section class="section">
+            <h2>Why InterNACHI Members Use It</h2>
+            <p class="sub">Fast documentation, fewer manual notes, professional output clients can trust.</p>
+            <div class="cards">
+                <div class="card">
+                    <h3>1. Capture property condition fast</h3>
+                    <p>Upload photos by room and generate standardized condition narratives with issue flags and recommendations.</p>
+                </div>
+                <div class="card">
+                    <h3>2. Deliver client-ready reports</h3>
+                    <p>Download PDF, email the report, or send a share link from mobile while still on-site.</p>
+                </div>
+                <div class="card">
+                    <h3>3. Keep report history synced</h3>
+                    <p>Plan-based access and account profile let teams store and retrieve past reports without losing job context.</p>
+                </div>
+                <div class="card">
+                    <h3>4. Keep pricing predictable</h3>
+                    <p>Single, Pro, and Enterprise plans with explicit caps prevent overage surprises for high-volume inspectors.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="pricing" class="section">
+            <h2>InterNACHI Member Pricing</h2>
+            <p class="sub">All plans include verified member-code support. First report is free, no credit card required.</p>
+            <div class="pricing-grid">
+                <div class="price-card">
+                    <div class="price-title">Single Report</div>
+                    <div class="price-old">$9.99</div>
+                    <div class="price-new">$8.99</div>
+                    <div class="price-unit">per report · member discount applied</div>
+                    <ul class="price-list">
+                        <li>1 full property condition report</li>
+                        <li>PDF + email delivery</li>
+                        <li>Mobile-ready workflow</li>
+                    </ul>
+                    <a class="cta-wide" href="/?ref=internachi">Start Free Trial</a>
+                </div>
+
+                <div class="price-card featured">
+                    <div class="badge">Most Popular</div>
+                    <div class="price-title">Pro Monthly</div>
+                    <div class="price-old">$39</div>
+                    <div class="price-new">$35.10</div>
+                    <div class="price-unit">per month · up to 25 reports/month</div>
+                    <ul class="price-list">
+                        <li>Priority processing</li>
+                        <li>Cloud report history</li>
+                        <li>Plan-based monthly cap</li>
+                    </ul>
+                    <a class="cta-wide" href="/?ref=internachi">Start Free Trial</a>
+                </div>
+
+                <div class="price-card">
+                    <div class="price-title">Pro Annual</div>
+                    <div class="price-old">$349</div>
+                    <div class="price-new">$314.10</div>
+                    <div class="price-unit">per year · up to 300 reports/year</div>
+                    <ul class="price-list">
+                        <li>Lower annual effective cost</li>
+                        <li>Same Pro workflow</li>
+                        <li>Annual cap protection</li>
+                    </ul>
+                    <a class="cta-wide" href="/?ref=internachi">Start Free Trial</a>
+                </div>
+
+                <div class="price-card">
+                    <div class="price-title">Enterprise Monthly</div>
+                    <div class="price-old">$299</div>
+                    <div class="price-new">$269.10</div>
+                    <div class="price-unit">per month · team + 125 reports/month</div>
+                    <ul class="price-list">
+                        <li>Team account workflow</li>
+                        <li>Higher report allowance</li>
+                        <li>Best for agencies and PM firms</li>
+                    </ul>
+                    <a class="cta-wide" href="/?ref=internachi">Start Free Trial</a>
+                </div>
+            </div>
+
+            <div class="verify">
+                <h3>Verification points</h3>
+                <ul>
+                    <li>Member-code validation happens server-side before checkout session is created.</li>
+                    <li>Partner codes are single-use per account/fingerprint to reduce abuse.</li>
+                    <li>Checkout is Stripe-hosted and tied to your Condition Report account context.</li>
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/">Condition Report App</a></div>
+        <div style="margin-top:8px;">© 2026 DataWeave INC</div>
+    </footer>
+</body>
+</html>
