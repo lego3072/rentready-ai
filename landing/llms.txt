@@ -68,8 +68,8 @@ It is built for speed, documentation quality, and deposit-dispute evidence.
 ## Pricing Snapshot
 - 1 free trial report
 - $9.99 single report
-- $39/month (up to 25 reports)
-- $349/year (up to 300 reports)
+- $49/month (up to 25 reports)
+- $499/year (up to 300 reports)
 
 ## Canonical URLs
 - Homepage: https://condition-report.com/

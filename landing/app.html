@@ -63,7 +63,7 @@
                     "availability": "https://schema.org/InStock",
                     "priceSpecification": {
                         "@type": "UnitPriceSpecification",
-                        "price": "39.00",
+                        "price": "49.00",
                         "priceCurrency": "USD",
                         "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "MON"},
                         "unitText": "month"
@@ -72,11 +72,11 @@
                 {
                     "@type": "Offer",
                     "name": "Pro Annual",
-                    "description": "Up to 300 property condition reports per year — save ",
+                    "description": "Up to 300 property condition reports per year — save $89 vs monthly",
                     "availability": "https://schema.org/InStock",
                     "priceSpecification": {
                         "@type": "UnitPriceSpecification",
-                        "price": "349.00",
+                        "price": "499.00",
                         "priceCurrency": "USD",
                         "billingDuration": {"@type": "QuantitativeValue", "value": 1, "unitCode": "ANN"},
                         "unitText": "year"
@@ -140,7 +140,7 @@
                 "name": "How much does a condition report cost?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "Your first report is free. After that, single reports are $9.99 each. For property managers with multiple units, Pro plans start at $39/month with up to 25 reports per month."
+                    "text": "Your first report is free. After that, single reports are $9.99 each. For property managers with multiple units, Pro plans start at $49/month with up to 25 reports per month."
                 }
             },
             {
@@ -272,6 +272,50 @@
             font-weight: 600;
             color: #666;
         }
+        .partnership-strip {
+            max-width: 600px;
+            margin: 10px auto 0;
+            padding: 0 12px;
+        }
+        .partnership-card {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .partnership-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #1e3a8a;
+            background: #dbeafe;
+            border-radius: 999px;
+            padding: 6px 10px;
+        }
+        .partnership-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1e3a8a;
+            flex: 1;
+            min-width: 180px;
+        }
+        .partnership-link {
+            text-decoration: none;
+            color: #fff;
+            background: #2563eb;
+            border-radius: 9px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
 
         /* Main container */
         .container {
@@ -326,6 +370,25 @@
             font-weight: 700;
             margin-bottom: 14px;
         }
+        .faq-mini {
+            background: #ffffff;
+            border: 1px solid #dbeafe;
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 12px;
+        }
+        .faq-mini h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: #1e3a8a;
+        }
+        .faq-mini ul {
+            margin-left: 16px;
+            color: #334155;
+            font-size: 13px;
+        }
+        .faq-mini li { margin: 6px 0; }
 
         /* Property info form */
         .form-grid {
@@ -996,6 +1059,7 @@
                 border-radius: 16px;
                 padding-bottom: 28px;
             }
+            .partnership-strip { margin-top: 14px; }
         }
 
         /* Hide sections */
@@ -1012,6 +1076,14 @@
         <button class="profile-btn" id="profile-btn" onclick="openProfileOrAuth()">
             <div class="profile-avatar guest" id="profile-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
         </button>
+    </div>
+</div>
+
+<div class="partnership-strip">
+    <div class="partnership-card">
+        <span class="partnership-chip">Verified InterNACHI Partner</span>
+        <span class="partnership-text">Trusted by InterNACHI-member inspectors for mobile property documentation.</span>
+        <a class="partnership-link" href="/internachi">InterNACHI Pricing + FAQ</a>
     </div>
 </div>
 
@@ -1096,16 +1168,16 @@
         <div class="pricing-tier" onclick="closePricingModal();checkout('pro')">
             <div class="tier-header">
                 <span class="tier-name">Pro Monthly</span>
-                <span class="tier-price">$39/mo</span>
+                <span class="tier-price">$49/mo</span>
             </div>
             <div class="tier-desc">Up to 25 reports/month. Cancel anytime.</div>
         </div>
         <div class="pricing-tier best" onclick="closePricingModal();checkout('annual')">
             <div class="tier-header">
                 <span class="tier-name">Pro Annual<span class="tier-badge">SAVE</span></span>
-                <span class="tier-price">$349/yr</span>
+                <span class="tier-price">$499/yr</span>
             </div>
-            <div class="tier-desc">Up to 300 reports/year. Save $119 vs monthly.</div>
+            <div class="tier-desc">Up to 300 reports/year. Save $89 vs monthly.</div>
         </div>
         <div class="pricing-tier" onclick="closePricingModal();checkout('enterprise')">
             <div class="tier-header">
@@ -1249,11 +1321,11 @@
                         </div>
                         <div class="pricing-option" onclick="checkout('pro')">
                             <div class="label">Pro Monthly (25/mo)</div>
-                            <div class="price">$39/mo</div>
+                            <div class="price">$49/mo</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('annual')">
                             <div class="label">Pro Annual (300/yr)</div>
-                            <div class="price">$349/yr</div>
+                            <div class="price">$499/yr</div>
                         </div>
                         <div class="pricing-option" onclick="checkout('enterprise')">
                             <div class="label">Enterprise Monthly</div>
@@ -1305,6 +1377,16 @@
             <h2>Your Past Reports</h2>
             <div id="past-reports-list"></div>
         </div>
+    </div>
+
+    <div class="faq-mini">
+        <h3>Quick FAQ</h3>
+        <ul>
+            <li>Your first report is free. After that, use single report or capped Pro/Enterprise plans.</li>
+            <li>InterNACHI members can apply their verified member code at checkout for partner pricing.</li>
+            <li>Reports can be downloaded as PDF, emailed, texted, or shared from mobile.</li>
+            <li>Need team onboarding? Use Enterprise plans for higher caps and shared account workflow.</li>
+        </ul>
     </div>
 </div>
 
@@ -1437,9 +1519,9 @@ async function init() {
         // Google Ads conversion tracking
         if (typeof gtag === 'function') {
             const convValue = type === 'pro'
-                ? 39.00
+                ? 49.00
                 : type === 'annual'
-                    ? 349.00
+                    ? 499.00
                     : type === 'enterprise'
                         ? 299.00
                         : 9.99;
@@ -2336,12 +2418,12 @@ async function checkout(type) {
     const checkoutValue = type === 'single'
         ? 9.99
         : type === 'annual'
-            ? 349.00
+            ? 499.00
             : type === 'enterprise'
                 ? 299.00
                 : type === 'enterprise_annual'
                     ? 2999.00
-                    : 39.00;
+                    : 49.00;
 
     // Fire Google Ads "begin_checkout" event
     if (typeof gtag === 'function') {
