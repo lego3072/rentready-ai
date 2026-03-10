@@ -120,6 +120,17 @@ def _higher_plan(current: Optional[str], candidate: Optional[str]) -> str:
     return candidate_norm if _plan_rank(candidate_norm) > _plan_rank(current_norm) else current_norm
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _is_timestamp_expired(ts: Optional[datetime]) -> bool:
+    if not ts:
+        return False
+    value = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return value <= _utcnow()
+
+
 def normalize_checkout_email(value: Optional[str]) -> str:
     return (value or "").strip().lower()
 
@@ -183,6 +194,7 @@ try:
                         fingerprint VARCHAR(255),
                         email VARCHAR(255),
                         plan VARCHAR(32) DEFAULT 'free',
+                        plan_expires_at TIMESTAMP,
                         reports_used INTEGER DEFAULT 0,
                         single_reports_purchased INTEGER DEFAULT 0,
                         stripe_customer_id VARCHAR(255),
@@ -234,6 +246,7 @@ try:
                         name VARCHAR(255),
                         company VARCHAR(255),
                         plan VARCHAR(32) DEFAULT 'free',
+                        plan_expires_at TIMESTAMP,
                         stripe_customer_id VARCHAR(255),
                         fingerprint VARCHAR(255),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -379,6 +392,12 @@ try:
                 # Add email_verified column to accounts (safe to run multiple times)
                 cur.execute("""
                     ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE
+                """)
+                cur.execute("""
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMP
+                """)
+                cur.execute("""
+                    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMP
                 """)
 
                 conn.commit()
@@ -718,13 +737,39 @@ def get_user(fingerprint: str) -> dict:
                     cur.execute("SELECT * FROM users WHERE fingerprint = %s", (fingerprint,))
                     row = cur.fetchone()
 
+            plan = normalize_plan(row.get("plan"))
+            expires_at = row.get("plan_expires_at")
+            if plan in ("pro", "enterprise") and _is_timestamp_expired(expires_at):
+                plan = "free"
+                expires_at = None
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE fingerprint = %s
+                    """,
+                    (fingerprint,),
+                )
+                email = row.get("email")
+                if email:
+                    cur.execute(
+                        """
+                        UPDATE accounts
+                        SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+                        WHERE email = %s
+                        """,
+                        (email,),
+                    )
+                conn.commit()
+
             cur.close()
             return {
                 "fingerprint": row["fingerprint"],
                 "email": row.get("email"),
                 "reports_used": row["reports_used"],
-                "is_pro": row["plan"] == "pro",
-                "plan": row["plan"],
+                "is_pro": plan == "pro",
+                "plan": plan,
+                "plan_expires_at": expires_at.isoformat() if expires_at else None,
                 "stripe_customer_id": row.get("stripe_customer_id"),
                 "single_reports_purchased": row["single_reports_purchased"],
                 "created_at": str(row["created_at"]),
@@ -743,6 +788,7 @@ def get_user(fingerprint: str) -> dict:
             "reports_used": 0,
             "is_pro": False,
             "plan": "free",
+            "plan_expires_at": None,
             "stripe_customer_id": None,
             "single_reports_purchased": 0,
             "reports": [],
@@ -928,7 +974,50 @@ def get_report_from_db(report_id: str) -> dict | None:
     return None
 
 
-def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None) -> bool:
+def update_report_pdf_path(report_id: str, pdf_path: str) -> None:
+    """Persist regenerated PDF path for a report."""
+    if not POSTGRES_AVAILABLE:
+        return
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE reports SET pdf_path = %s WHERE id = %s", (pdf_path, report_id))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        logger.error(f"DB update_report_pdf_path error: {e}")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+def ensure_report_pdf(report: dict) -> Optional[str]:
+    """
+    Ensure a report has a valid PDF on disk.
+    If missing (Railway ephemeral disk), regenerate from persisted report data.
+    """
+    pdf_path = report.get("pdf_path")
+    if pdf_path and os.path.exists(pdf_path):
+        return pdf_path
+
+    try:
+        regenerated = generate_pdf_report(report)
+        report["pdf_path"] = regenerated
+        reports_db[report["id"]] = report
+        update_report_pdf_path(report["id"], regenerated)
+        return regenerated
+    except Exception as e:
+        logger.error(f"Failed to regenerate PDF for report {report.get('id')}: {e}")
+        return None
+
+
+def update_user_plan(
+    fingerprint: str,
+    plan: str,
+    stripe_customer_id: str = None,
+    plan_expires_at: Optional[datetime] = None,
+) -> bool:
     """Update user plan in DB and keep accounts table in sync. Returns True on success."""
     if POSTGRES_AVAILABLE:
         conn = None
@@ -937,27 +1026,27 @@ def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None
             cur = conn.cursor()
             if stripe_customer_id:
                 cur.execute("""
-                    UPDATE users SET plan = %s, stripe_customer_id = %s, updated_at = CURRENT_TIMESTAMP
+                    UPDATE users SET plan = %s, stripe_customer_id = %s, plan_expires_at = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE fingerprint = %s
-                """, (plan, stripe_customer_id, fingerprint))
+                """, (plan, stripe_customer_id, plan_expires_at, fingerprint))
             else:
                 cur.execute("""
-                    UPDATE users SET plan = %s, updated_at = CURRENT_TIMESTAMP
+                    UPDATE users SET plan = %s, plan_expires_at = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE fingerprint = %s
-                """, (plan, fingerprint))
+                """, (plan, plan_expires_at, fingerprint))
             users_updated = cur.rowcount
 
             # Sync accounts table for consistent profile/account views.
             if stripe_customer_id:
                 cur.execute("""
-                    UPDATE accounts SET plan = %s, stripe_customer_id = %s, updated_at = CURRENT_TIMESTAMP
+                    UPDATE accounts SET plan = %s, stripe_customer_id = %s, plan_expires_at = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE fingerprint = %s
-                """, (plan, stripe_customer_id, fingerprint))
+                """, (plan, stripe_customer_id, plan_expires_at, fingerprint))
             else:
                 cur.execute("""
-                    UPDATE accounts SET plan = %s, updated_at = CURRENT_TIMESTAMP
+                    UPDATE accounts SET plan = %s, plan_expires_at = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE fingerprint = %s
-                """, (plan, fingerprint))
+                """, (plan, plan_expires_at, fingerprint))
             accounts_updated = cur.rowcount
 
             conn.commit()
@@ -981,6 +1070,7 @@ def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None
             "reports_used": 0,
             "is_pro": False,
             "plan": "free",
+            "plan_expires_at": None,
             "stripe_customer_id": None,
             "single_reports_purchased": 0,
             "reports": [],
@@ -989,6 +1079,7 @@ def update_user_plan(fingerprint: str, plan: str, stripe_customer_id: str = None
         users_db[fingerprint] = user
     user["plan"] = plan
     user["is_pro"] = plan == "pro"
+    user["plan_expires_at"] = plan_expires_at.isoformat() if plan_expires_at else None
     if stripe_customer_id:
         user["stripe_customer_id"] = stripe_customer_id
     return True
@@ -1028,6 +1119,7 @@ def add_single_report_purchase(fingerprint: str) -> bool:
             "reports_used": 0,
             "is_pro": False,
             "plan": "free",
+            "plan_expires_at": None,
             "stripe_customer_id": None,
             "single_reports_purchased": 0,
             "reports": [],
@@ -2348,8 +2440,8 @@ async def download_report_pdf(
     if report["fingerprint"] != fingerprint:
         raise HTTPException(403, "Not your report")
 
-    pdf_path = report.get("pdf_path")
-    if not pdf_path or not os.path.exists(pdf_path):
+    pdf_path = ensure_report_pdf(report)
+    if not pdf_path:
         raise HTTPException(404, "PDF not found")
 
     address = report.get("property_info", {}).get("address", "property")
@@ -2602,6 +2694,8 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
         raise HTTPException(403, "Session does not belong to this user")
 
     purchase_type = session.metadata.get("type", "")
+    billing = (session.metadata.get("billing") or "monthly").strip().lower()
+    annual_expires_at = _utcnow() + timedelta(days=365) if billing == "annual" else None
 
     # Idempotency: check if this session was already processed (by webhook or previous verify call)
     if not mark_session_processed(session_id, fp, purchase_type):
@@ -2616,13 +2710,13 @@ async def verify_payment(request: Request, x_fingerprint: Optional[str] = Header
 
     elif purchase_type == "pro":
         customer_id = session.get("customer", "") or ""
-        if not update_user_plan(fp, "pro", customer_id):
+        if not update_user_plan(fp, "pro", customer_id, plan_expires_at=annual_expires_at):
             rollback_processed_session(session_id)
             logger.error(f"verify_payment: failed to activate pro plan for {fp[:12]}...")
             raise HTTPException(500, "Payment verified but plan activation failed. Please retry in a moment.")
     elif purchase_type == "enterprise":
         customer_id = session.get("customer", "") or ""
-        if not update_user_plan(fp, "enterprise", customer_id):
+        if not update_user_plan(fp, "enterprise", customer_id, plan_expires_at=annual_expires_at):
             rollback_processed_session(session_id)
             logger.error(f"verify_payment: failed to activate enterprise plan for {fp[:12]}...")
             raise HTTPException(500, "Payment verified but enterprise activation failed. Please retry in a moment.")
@@ -2754,8 +2848,8 @@ async def download_shared_report(token: str):
     if not report:
         return HTMLResponse("<h2>Report not found.</h2>", status_code=404)
 
-    pdf_path = report.get("pdf_path")
-    if not pdf_path or not os.path.exists(pdf_path):
+    pdf_path = ensure_report_pdf(report)
+    if not pdf_path:
         return HTMLResponse("<h2>PDF not found.</h2>", status_code=404)
 
     address = report.get("property_info", {}).get("address", "property")
@@ -2935,8 +3029,8 @@ async def email_report(request: Request, x_fingerprint: Optional[str] = Header(N
     if report["fingerprint"] != fp:
         raise HTTPException(403, "Not your report")
 
-    pdf_path = report.get("pdf_path")
-    if not pdf_path or not os.path.exists(pdf_path):
+    pdf_path = ensure_report_pdf(report)
+    if not pdf_path:
         raise HTTPException(404, "PDF not found")
 
     if not RESEND_API_KEY:
@@ -3012,6 +3106,8 @@ async def stripe_webhook(request: Request):
         stripe_session_id = session.get("id", "")
         fp = session.get("metadata", {}).get("fingerprint", "")
         purchase_type = session.get("metadata", {}).get("type", "")
+        billing = (session.get("metadata", {}) or {}).get("billing", "monthly")
+        annual_expires_at = _utcnow() + timedelta(days=365) if str(billing).lower() == "annual" else None
 
         if fp:
             # Idempotency: skip if already processed by /api/verify-payment
@@ -3025,13 +3121,13 @@ async def stripe_webhook(request: Request):
                         raise HTTPException(500, "Failed to apply single-report purchase")
                 elif purchase_type == "pro":
                     customer_id = session.get("customer", "")
-                    if not update_user_plan(fp, "pro", customer_id):
+                    if not update_user_plan(fp, "pro", customer_id, plan_expires_at=annual_expires_at):
                         rollback_processed_session(stripe_session_id)
                         logger.error(f"webhook: failed to activate pro plan for {fp[:12]}...")
                         raise HTTPException(500, "Failed to activate pro plan")
                 elif purchase_type == "enterprise":
                     customer_id = session.get("customer", "")
-                    if not update_user_plan(fp, "enterprise", customer_id):
+                    if not update_user_plan(fp, "enterprise", customer_id, plan_expires_at=annual_expires_at):
                         rollback_processed_session(stripe_session_id)
                         logger.error(f"webhook: failed to activate enterprise plan for {fp[:12]}...")
                         raise HTTPException(500, "Failed to activate enterprise plan")
@@ -3060,11 +3156,11 @@ async def stripe_webhook(request: Request):
                 conn = get_db_connection()
                 cur = conn.cursor()
                 cur.execute("""
-                    UPDATE users SET plan = 'free', updated_at = CURRENT_TIMESTAMP
+                    UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
                     WHERE stripe_customer_id = %s
                 """, (customer_id,))
                 cur.execute("""
-                    UPDATE accounts SET plan = 'free', updated_at = CURRENT_TIMESTAMP
+                    UPDATE accounts SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
                     WHERE stripe_customer_id = %s
                 """, (customer_id,))
                 conn.commit()
@@ -3117,14 +3213,16 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
             pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
             # Check if this fingerprint has an existing user row (to preserve purchase history)
-            cur.execute("SELECT plan, reports_used, single_reports_purchased, stripe_customer_id FROM users WHERE fingerprint = %s", (fp,))
+            cur.execute("SELECT plan, plan_expires_at, reports_used, single_reports_purchased, stripe_customer_id FROM users WHERE fingerprint = %s", (fp,))
             existing_user = cur.fetchone()
 
             plan = "free"
             stripe_cid = None
+            plan_expires_at = None
             if existing_user:
                 plan = existing_user["plan"] or "free"
                 stripe_cid = existing_user.get("stripe_customer_id")
+                plan_expires_at = existing_user.get("plan_expires_at")
 
             # Check Stripe for active Condition Report subscription (not DataWeave)
             pro_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
@@ -3151,15 +3249,15 @@ async def account_signup(request: Request, x_fingerprint: Optional[str] = Header
 
             # Create account
             cur.execute("""
-                INSERT INTO accounts (email, password_hash, name, plan, stripe_customer_id, fingerprint)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (email, pw_hash, name, plan, stripe_cid, fp))
+                INSERT INTO accounts (email, password_hash, name, plan, plan_expires_at, stripe_customer_id, fingerprint)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (email, pw_hash, name, plan, plan_expires_at, stripe_cid, fp))
 
             # Link email to user record
             cur.execute("""
-                UPDATE users SET email = %s, plan = %s, stripe_customer_id = COALESCE(%s, stripe_customer_id), updated_at = CURRENT_TIMESTAMP
+                UPDATE users SET email = %s, plan = %s, plan_expires_at = %s, stripe_customer_id = COALESCE(%s, stripe_customer_id), updated_at = CURRENT_TIMESTAMP
                 WHERE fingerprint = %s
-            """, (email, plan, stripe_cid, fp))
+            """, (email, plan, plan_expires_at, stripe_cid, fp))
 
             # Multi-device session tracking
             cur.execute("""
@@ -3277,6 +3375,26 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
 
             plan = account["plan"] or "free"
             plan = normalize_plan(plan)
+            plan_expires_at = account.get("plan_expires_at")
+            if plan in ("pro", "enterprise") and _is_timestamp_expired(plan_expires_at):
+                plan = "free"
+                plan_expires_at = None
+                cur.execute(
+                    """
+                    UPDATE accounts
+                    SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE email = %s
+                    """,
+                    (email,),
+                )
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE email = %s OR fingerprint = %s
+                    """,
+                    (email, fp),
+                )
 
             # Auto-heal: check Stripe if plan shows free (only Condition Report prices)
             pro_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
@@ -3291,12 +3409,14 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
                                 price_id = item.get("price", {}).get("id")
                                 if price_id in enterprise_price_ids:
                                     plan = "enterprise"
-                                    cur.execute("UPDATE accounts SET plan = 'enterprise', stripe_customer_id = %s WHERE email = %s",
+                                    plan_expires_at = None
+                                    cur.execute("UPDATE accounts SET plan = 'enterprise', plan_expires_at = NULL, stripe_customer_id = %s WHERE email = %s",
                                                 (customers.data[0].id, email))
                                     break
                                 if price_id in pro_price_ids:
                                     plan = "pro"
-                                    cur.execute("UPDATE accounts SET plan = 'pro', stripe_customer_id = %s WHERE email = %s",
+                                    plan_expires_at = None
+                                    cur.execute("UPDATE accounts SET plan = 'pro', plan_expires_at = NULL, stripe_customer_id = %s WHERE email = %s",
                                                 (customers.data[0].id, email))
                                     break
                             if plan != "free":
@@ -3305,17 +3425,36 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
                     pass
 
             # Link fingerprint to this account's email in users table (use explicit plan ranking, not lexical compare).
-            cur.execute("SELECT plan FROM users WHERE fingerprint = %s", (fp,))
+            cur.execute("SELECT plan, plan_expires_at FROM users WHERE fingerprint = %s", (fp,))
             existing_user = cur.fetchone()
-            merged_plan = _higher_plan(existing_user["plan"] if existing_user else "free", plan)
+            existing_plan = existing_user["plan"] if existing_user else "free"
+            existing_expires_at = existing_user.get("plan_expires_at") if existing_user else None
+            merged_plan = _higher_plan(existing_plan, plan)
+            merged_plan_expires_at = existing_expires_at if merged_plan == normalize_plan(existing_plan) else plan_expires_at
+            if merged_plan == "free":
+                merged_plan_expires_at = None
+
             cur.execute("""
-                INSERT INTO users (fingerprint, email, plan)
-                VALUES (%s, %s, %s)
+                INSERT INTO users (fingerprint, email, plan, plan_expires_at)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (fingerprint) DO UPDATE SET
                     email = EXCLUDED.email,
                     plan = EXCLUDED.plan,
+                    plan_expires_at = EXCLUDED.plan_expires_at,
                     updated_at = CURRENT_TIMESTAMP
-            """, (fp, email, merged_plan))
+            """, (fp, email, merged_plan, merged_plan_expires_at))
+
+            if merged_plan != plan or merged_plan_expires_at != plan_expires_at:
+                cur.execute(
+                    """
+                    UPDATE accounts
+                    SET plan = %s, plan_expires_at = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE email = %s
+                    """,
+                    (merged_plan, merged_plan_expires_at, email),
+                )
+                plan = merged_plan
+                plan_expires_at = merged_plan_expires_at
 
             # Also link fingerprint to account (keeps latest for quick lookup)
             cur.execute("UPDATE accounts SET fingerprint = %s, updated_at = CURRENT_TIMESTAMP WHERE email = %s", (fp, email))
@@ -3334,6 +3473,7 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
                 "email": email,
                 "name": account.get("name", ""),
                 "plan": plan,
+                "plan_expires_at": plan_expires_at.isoformat() if plan_expires_at else None,
                 "company": account.get("company", ""),
             }
         except HTTPException:
@@ -3361,7 +3501,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
 
             # Find account linked to this fingerprint (direct match first, then session table)
             cur.execute("""
-                SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id, a.email_verified
+                SELECT a.email, a.name, a.company, a.plan, a.plan_expires_at, a.created_at, a.stripe_customer_id, a.email_verified
                 FROM accounts a WHERE a.fingerprint = %s
             """, (fp,))
             account = cur.fetchone()
@@ -3369,7 +3509,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
             if not account:
                 # Multi-device fallback: check session table
                 cur.execute("""
-                    SELECT a.email, a.name, a.company, a.plan, a.created_at, a.stripe_customer_id, a.email_verified
+                    SELECT a.email, a.name, a.company, a.plan, a.plan_expires_at, a.created_at, a.stripe_customer_id, a.email_verified
                     FROM account_sessions s
                     JOIN accounts a ON a.email = s.email
                     WHERE s.fingerprint = %s
@@ -3379,6 +3519,30 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
 
             if not account:
                 return {"logged_in": False}
+
+            account_plan = normalize_plan(account.get("plan"))
+            account_expiry = account.get("plan_expires_at")
+            if account_plan in ("pro", "enterprise") and _is_timestamp_expired(account_expiry):
+                account_plan = "free"
+                account_expiry = None
+                cur.execute(
+                    """
+                    UPDATE accounts
+                    SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE email = %s
+                    """,
+                    (account["email"],),
+                )
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET plan = 'free', plan_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE email = %s OR fingerprint = %s
+                    """,
+                    (account["email"], fp),
+                )
+                account["plan"] = "free"
+                account["plan_expires_at"] = None
 
             # Get report count across all devices for this account
             cur.execute("""
@@ -3399,12 +3563,13 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
                 "email": account["email"],
                 "name": account.get("name", ""),
                 "company": account.get("company", ""),
-                "plan": account["plan"] or "free",
+                "plan": account_plan,
                 "reports_generated": report_count,
                 "reports_used": user_data["reports_used"] if user_data else 0,
                 "single_reports_purchased": user_data["single_reports_purchased"] if user_data else 0,
                 "member_since": account["created_at"].strftime("%B %Y") if account["created_at"] else "",
-                "has_subscription": account["plan"] in ("pro", "enterprise"),
+                "has_subscription": account_plan in ("pro", "enterprise"),
+                "plan_expires_at": account_expiry.isoformat() if account_expiry else None,
                 "email_verified": bool(account.get("email_verified", False)),
             }
         except Exception as e:
