@@ -102,6 +102,22 @@ BLOCKED_CHECKOUT_EMAIL_DOMAINS = {
 }
 BLOCKED_CHECKOUT_LOCAL_TOKENS = ("test", "fake", "demo", "bot", "spam", "temp", "example")
 RETIRED_PARTNER_CODES = {"NACHI15"}
+PLAN_PRIORITY = {"free": 0, "pro": 1, "enterprise": 2}
+
+
+def normalize_plan(plan: Optional[str]) -> str:
+    value = (plan or "").strip().lower()
+    return value if value in PLAN_PRIORITY else "free"
+
+
+def _plan_rank(plan: Optional[str]) -> int:
+    return PLAN_PRIORITY.get(normalize_plan(plan), 0)
+
+
+def _higher_plan(current: Optional[str], candidate: Optional[str]) -> str:
+    current_norm = normalize_plan(current)
+    candidate_norm = normalize_plan(candidate)
+    return candidate_norm if _plan_rank(candidate_norm) > _plan_rank(current_norm) else current_norm
 
 
 def normalize_checkout_email(value: Optional[str]) -> str:
@@ -293,11 +309,12 @@ try:
 
                 # Seed default partner codes for association campaigns.
                 cur.execute(
-                    "INSERT INTO partner_codes (code, org_name, discount_percent, revenue_share_percent) VALUES ('NACHI10', 'International Association of Certified Home Inspectors', 10, 10) ON CONFLICT (code) DO UPDATE SET discount_percent = 10, active = TRUE"
+                    "INSERT INTO partner_codes (code, org_name, discount_percent, revenue_share_percent) VALUES ('NACHI10', 'International Association of Certified Home Inspectors', 10, 0) ON CONFLICT (code) DO UPDATE SET discount_percent = 10, revenue_share_percent = 0, active = TRUE"
                 )
                 cur.execute(
                     "INSERT INTO partner_codes (code, org_name, discount_percent, revenue_share_percent) VALUES ('FB15', 'Facebook Community Promo', 15, 0) ON CONFLICT (code) DO UPDATE SET discount_percent = 15, active = TRUE"
                 )
+                cur.execute("UPDATE partner_codes SET revenue_share_percent = 0 WHERE code = 'NACHI10'")
                 cur.execute("UPDATE partner_codes SET active = FALSE WHERE code = 'NACHI15'")
 
                 # Email verification tokens
@@ -3259,6 +3276,7 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
                 cur.execute("UPDATE accounts SET password_hash = %s WHERE email = %s", (new_hash, email))
 
             plan = account["plan"] or "free"
+            plan = normalize_plan(plan)
 
             # Auto-heal: check Stripe if plan shows free (only Condition Report prices)
             pro_price_ids = {STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL} - {""}
@@ -3286,15 +3304,18 @@ async def account_login(request: Request, x_fingerprint: Optional[str] = Header(
                 except Exception:
                     pass
 
-            # Link fingerprint to this account's email in users table
+            # Link fingerprint to this account's email in users table (use explicit plan ranking, not lexical compare).
+            cur.execute("SELECT plan FROM users WHERE fingerprint = %s", (fp,))
+            existing_user = cur.fetchone()
+            merged_plan = _higher_plan(existing_user["plan"] if existing_user else "free", plan)
             cur.execute("""
                 INSERT INTO users (fingerprint, email, plan)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (fingerprint) DO UPDATE SET
                     email = EXCLUDED.email,
-                    plan = GREATEST(users.plan, EXCLUDED.plan),
+                    plan = EXCLUDED.plan,
                     updated_at = CURRENT_TIMESTAMP
-            """, (fp, email, plan))
+            """, (fp, email, merged_plan))
 
             # Also link fingerprint to account (keeps latest for quick lookup)
             cur.execute("UPDATE accounts SET fingerprint = %s, updated_at = CURRENT_TIMESTAMP WHERE email = %s", (fp, email))
@@ -3383,7 +3404,7 @@ async def account_profile(request: Request, x_fingerprint: Optional[str] = Heade
                 "reports_used": user_data["reports_used"] if user_data else 0,
                 "single_reports_purchased": user_data["single_reports_purchased"] if user_data else 0,
                 "member_since": account["created_at"].strftime("%B %Y") if account["created_at"] else "",
-                "has_subscription": account["plan"] in ("pro",),
+                "has_subscription": account["plan"] in ("pro", "enterprise"),
                 "email_verified": bool(account.get("email_verified", False)),
             }
         except Exception as e:
@@ -3614,6 +3635,13 @@ async def request_password_reset(request: Request):
     return {"success": True, "message": "If an account exists, a reset link has been sent."}
 
 
+@app.post("/api/account/request-password-reset")
+@limiter.limit("3/minute")
+async def request_password_reset_alias(request: Request):
+    """Compatibility alias for password reset request endpoint."""
+    return await request_password_reset(request)
+
+
 @app.post("/api/account/reset-password")
 @limiter.limit("5/minute")
 async def reset_password(request: Request):
@@ -3664,6 +3692,13 @@ async def reset_password(request: Request):
     finally:
         if conn:
             release_db_connection(conn)
+
+
+@app.post("/api/account/request-email-verification")
+@limiter.limit("3/minute")
+async def request_email_verification_alias(request: Request, x_fingerprint: Optional[str] = Header(None)):
+    """Compatibility alias for resend verification endpoint."""
+    return await resend_verification(request, x_fingerprint)
 
 
 # --- File Cleanup ---
