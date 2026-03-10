@@ -286,7 +286,7 @@ try:
                         code VARCHAR(64) PRIMARY KEY,
                         org_name VARCHAR(255) NOT NULL,
                         discount_percent INTEGER DEFAULT 10,
-                        revenue_share_percent INTEGER DEFAULT 10,
+                        revenue_share_percent INTEGER DEFAULT 0,
                         active BOOLEAN DEFAULT TRUE,
                         redemptions INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -2518,7 +2518,7 @@ async def add_partner_code(request: Request):
     if code in RETIRED_PARTNER_CODES:
         raise HTTPException(400, f"Partner code '{code}' is retired and cannot be re-enabled")
     discount = min(int(body.get("discount_percent", 10)), 50)
-    rev_share = min(int(body.get("revenue_share_percent", 10)), 50)
+    rev_share = min(int(body.get("revenue_share_percent", 0)), 50)
     if not POSTGRES_AVAILABLE:
         raise HTTPException(500, "Database not available")
     conn = None
