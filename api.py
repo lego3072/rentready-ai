@@ -3636,7 +3636,6 @@ async def request_password_reset(request: Request):
 
 
 @app.post("/api/account/request-password-reset")
-@limiter.limit("3/minute")
 async def request_password_reset_alias(request: Request):
     """Compatibility alias for password reset request endpoint."""
     return await request_password_reset(request)
@@ -3695,7 +3694,6 @@ async def reset_password(request: Request):
 
 
 @app.post("/api/account/request-email-verification")
-@limiter.limit("3/minute")
 async def request_email_verification_alias(request: Request, x_fingerprint: Optional[str] = Header(None)):
     """Compatibility alias for resend verification endpoint."""
     return await resend_verification(request, x_fingerprint)
