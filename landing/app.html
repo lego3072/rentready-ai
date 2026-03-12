@@ -1081,8 +1081,16 @@
 
 <div class="partnership-strip">
     <div class="partnership-card">
-        <span class="partnership-chip">Verified InterNACHI Partner</span>
-        <span class="partnership-text">Trusted by InterNACHI-member inspectors for mobile property documentation.</span>
+        <span class="partnership-chip">Verified InterNACHI + ASHI Partner</span>
+        <span class="partnership-text">Trusted by InterNACHI and ASHI member inspectors for mobile property documentation.</span>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <a href="https://www.nachi.org" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border:1px solid #dbeafe;border-radius:10px;padding:6px 10px;text-decoration:none;">
+                <img src="https://www.nachi.org/images2012/InterNACHI-Certified-Professional-Inspector-Logo-Gold.png" alt="InterNACHI" style="height:34px;object-fit:contain;">
+            </a>
+            <a href="https://www.homeinspector.org" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border:1px solid #dbeafe;border-radius:10px;padding:6px 10px;text-decoration:none;">
+                <img src="/static/ashi-logo.svg" alt="ASHI" style="height:34px;object-fit:contain;">
+            </a>
+        </div>
         <a class="partnership-link" href="/internachi">InterNACHI Pricing + FAQ</a>
     </div>
 </div>
@@ -2341,6 +2349,20 @@ function resolveCheckoutPartnerCode() {
     return String(activePartnerCode || fromInputs || '').trim().toUpperCase();
 }
 
+function normalizePartnerCodeInput(rawCode) {
+    const code = String(rawCode || '').trim().toUpperCase();
+    if (!code) return '';
+    const aliasMap = {
+        INTERNACHI: 'NACHI10',
+        NACHI: 'NACHI10',
+        FACEBOOK: 'FB15',
+        CONDITIONFB: 'FB15',
+        FB: 'FB15',
+        'FB-15': 'FB15',
+    };
+    return aliasMap[code] || code;
+}
+
 async function applyPartnerCode(source) {
     const input = document.getElementById(source + '-partner-code');
     const msg = document.getElementById(source + '-partner-msg');
@@ -2394,6 +2416,27 @@ async function applyPartnerCode(source) {
 async function bootstrapPartnerReferralCode() {
     const params = new URLSearchParams(window.location.search);
     const ref = (params.get('ref') || '').trim().toLowerCase();
+    const rawCode = params.get('partner_code') || params.get('promo') || params.get('code') || '';
+    let bootstrapCode = normalizePartnerCodeInput(rawCode);
+
+    if (!bootstrapCode) {
+        if (ref === 'internachi') {
+            bootstrapCode = 'NACHI10';
+        } else if (ref === 'facebook' || ref === 'fb' || ref === 'conditionfb') {
+            bootstrapCode = 'FB15';
+        }
+    }
+
+    if (bootstrapCode) {
+        activePartnerCode = bootstrapCode;
+        ['modal-partner-code', 'upgrade-partner-code'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = bootstrapCode;
+        });
+        await applyPartnerCode('modal');
+        return;
+    }
+
     if (ref !== 'internachi') return;
 
     activePartnerCode = '';
