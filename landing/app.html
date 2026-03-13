@@ -1081,19 +1081,19 @@
 
 <div class="partnership-strip">
     <div class="partnership-card">
-        <span class="partnership-chip">Verified InterNACHI + ASHI Partner</span>
-        <span class="partnership-text">Trusted by InterNACHI and ASHI member inspectors for mobile property documentation.</span>
+        <span class="partnership-chip" id="partner-strip-chip">Verified InterNACHI + ASHI Partner</span>
+        <span class="partnership-text" id="partner-strip-text">Trusted by InterNACHI and ASHI member inspectors for mobile property documentation.</span>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <a href="https://www.nachi.org" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border:1px solid #dbeafe;border-radius:10px;padding:6px 10px;text-decoration:none;">
                 <img src="/static/internachi-logo.png" alt="InterNACHI" style="width:120px;height:34px;object-fit:contain;display:block;" referrerpolicy="no-referrer">
             </a>
-            <a href="https://www.homeinspector.org" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border:1px solid #dbeafe;border-radius:10px;padding:6px 10px;text-decoration:none;">
+            <a href="https://www.homeinspector.org" target="_blank" rel="noopener noreferrer" id="partner-strip-ashi" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border:1px solid #dbeafe;border-radius:10px;padding:6px 10px;text-decoration:none;">
                 <div style="width:120px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;background:#1f3b6d;padding:3px 8px;">
                     <img src="/static/ashi-logo.svg" alt="ASHI" style="width:104px;height:24px;object-fit:contain;display:block;">
                 </div>
             </a>
         </div>
-        <span class="partnership-text" style="font-weight:700;">Member pricing is available on the InterNACHI and ASHI partner landing pages.</span>
+        <span class="partnership-text" id="partner-strip-footer" style="font-weight:700;">Member pricing is available on the InterNACHI and ASHI partner landing pages.</span>
     </div>
 </div>
 
@@ -2420,6 +2420,17 @@ async function bootstrapPartnerReferralCode() {
     const ref = (params.get('ref') || '').trim().toLowerCase();
     const rawCode = params.get('partner_code') || params.get('promo') || params.get('code') || '';
     let bootstrapCode = normalizePartnerCodeInput(rawCode);
+
+    if (ref === 'internachi') {
+        const chip = document.getElementById('partner-strip-chip');
+        const text = document.getElementById('partner-strip-text');
+        const ashiLogo = document.getElementById('partner-strip-ashi');
+        const footer = document.getElementById('partner-strip-footer');
+        if (chip) chip.textContent = 'Verified InterNACHI Partner';
+        if (text) text.textContent = 'Trusted by InterNACHI member inspectors for mobile property documentation.';
+        if (ashiLogo) ashiLogo.remove();
+        if (footer) footer.textContent = 'Member pricing is available on the InterNACHI partner landing page.';
+    }
 
     if (!bootstrapCode) {
         if (ref === 'internachi') {
