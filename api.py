@@ -2199,6 +2199,17 @@ async def internachi_landing():
     return HTMLResponse("<h1>InterNACHI Partner Page</h1><p>Page loading...</p>")
 
 
+@app.get("/ashi", response_class=HTMLResponse)
+async def ashi_landing():
+    html_path = Path("landing/ashi.html")
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text())
+    html_path = Path("landing/app.html")
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text())
+    return HTMLResponse("<h1>Condition Report</h1><p>App loading...</p>")
+
+
 @app.get("/terms", response_class=HTMLResponse)
 async def terms_page():
     """Serve Terms of Service page."""

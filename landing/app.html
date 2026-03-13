@@ -1079,7 +1079,7 @@
     </div>
 </div>
 
-<div class="partnership-strip">
+<div class="partnership-strip" id="partnership-strip" style="display:none;">
     <div class="partnership-card">
         <span class="partnership-chip" id="partner-strip-chip">Verified InterNACHI + ASHI Partner</span>
         <span class="partnership-text" id="partner-strip-text">Trusted by InterNACHI and ASHI member inspectors for mobile property documentation.</span>
@@ -2420,8 +2420,11 @@ async function bootstrapPartnerReferralCode() {
     const ref = (params.get('ref') || '').trim().toLowerCase();
     const rawCode = params.get('partner_code') || params.get('promo') || params.get('code') || '';
     let bootstrapCode = normalizePartnerCodeInput(rawCode);
+    const strip = document.getElementById('partnership-strip');
+    const isInterNachiReferral = ref === 'internachi' || bootstrapCode === 'NACHI10';
 
-    if (ref === 'internachi') {
+    if (isInterNachiReferral) {
+        if (strip) strip.style.display = '';
         const chip = document.getElementById('partner-strip-chip');
         const text = document.getElementById('partner-strip-text');
         const ashiLogo = document.getElementById('partner-strip-ashi');
@@ -2430,6 +2433,8 @@ async function bootstrapPartnerReferralCode() {
         if (text) text.textContent = 'Trusted by InterNACHI member inspectors for mobile property documentation.';
         if (ashiLogo) ashiLogo.remove();
         if (footer) footer.textContent = 'Member pricing is available on the InterNACHI partner landing page.';
+    } else if (strip) {
+        strip.style.display = 'none';
     }
 
     if (!bootstrapCode) {
